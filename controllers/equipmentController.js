@@ -150,9 +150,6 @@ const deleteFromCloudinary = async (imageUrl) => {
 // ==========================================
 // CREATE EQUIPMENT OWNER ACCOUNT (SIGNUP)
 // ==========================================
-// ==========================================
-// CREATE EQUIPMENT OWNER ACCOUNT (SIGNUP)
-// ==========================================
 const createEquipmentOwnerAccount = async (req, res) => {
   console.log('🎯 createEquipmentOwnerAccount called');
   console.log('📦 Body:', req.body);
@@ -206,7 +203,7 @@ const createEquipmentOwnerAccount = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Handle profile photo upload to Cloudinary - FIXED
+    // Handle profile photo upload to Cloudinary
     let profilePhotoUrl = null;
     if (req.files && req.files.profilePhoto && req.files.profilePhoto[0]) {
       try {
@@ -380,7 +377,8 @@ const updateEquipmentOwnerProfile = async (req, res) => {
       companyName,
       location,
       mobileNumber,
-      whatsappNumber
+      whatsappNumber,
+      removePhoto
     } = req.body;
 
     // Get current profile
@@ -398,9 +396,16 @@ const updateEquipmentOwnerProfile = async (req, res) => {
 
     const current = currentProfile[0];
 
-    // Handle profile photo update - FIXED
+    // Handle profile photo update/removal
     let profilePhotoUrl = current.profile_photo;
-    if (req.files && req.files.profilePhoto && req.files.profilePhoto[0]) {
+    
+    if (removePhoto === 'true') {
+      if (current.profile_photo) {
+        await deleteFromCloudinary(current.profile_photo);
+      }
+      profilePhotoUrl = null;
+      console.log('🗑️ Profile photo removed');
+    } else if (req.files && req.files.profilePhoto && req.files.profilePhoto[0]) {
       try {
         console.log('📸 Uploading new profile photo...');
         
@@ -452,7 +457,8 @@ const updateEquipmentOwnerProfile = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully'
+      message: 'Profile updated successfully',
+      profilePhotoUrl: profilePhotoUrl || null
     });
 
   } catch (error) {
@@ -704,6 +710,9 @@ const deleteEquipment = async (req, res) => {
   }
 };
 
+// ==========================================
+// GET OWNER PROFILE (Public Access)
+// ==========================================
 const getOwnerProfile = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -744,7 +753,6 @@ const getOwnerProfile = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   createEquipmentOwnerAccount,

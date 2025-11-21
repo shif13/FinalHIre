@@ -45,7 +45,6 @@ const createConsultantProfilesTable = async () => {
 // ==========================================
 const updateUsersTableForConsultant = async () => {
   try {
-    // Check current ENUM values
     const [columns] = await db.query(`
       SELECT COLUMN_TYPE 
       FROM INFORMATION_SCHEMA.COLUMNS 
@@ -57,7 +56,6 @@ const updateUsersTableForConsultant = async () => {
     if (columns.length > 0) {
       const columnType = columns[0].COLUMN_TYPE;
       
-      // Check if 'consultant' already exists
       if (!columnType.includes('consultant')) {
         console.log('🔄 Adding consultant to user_type ENUM...');
         
@@ -73,7 +71,6 @@ const updateUsersTableForConsultant = async () => {
     }
   } catch (error) {
     console.error('❌ Error updating users table:', error);
-    // Don't throw - allow app to continue if this fails
   }
 };
 
@@ -93,7 +90,6 @@ const updateUsersTableForConsultant = async () => {
 // HELPER FUNCTIONS
 // ==========================================
 
-// Upload image to Cloudinary
 const uploadToCloudinary = async (filePath) => {
   try {
     const result = await cloudinary.uploader.upload(filePath, {
@@ -113,7 +109,6 @@ const uploadToCloudinary = async (filePath) => {
   }
 };
 
-// Delete from Cloudinary
 const deleteFromCloudinary = async (imageUrl) => {
   try {
     if (!imageUrl) return;
@@ -129,7 +124,6 @@ const deleteFromCloudinary = async (imageUrl) => {
   }
 };
 
-// Delete local file
 const deleteLocalFile = (filename) => {
   try {
     if (!filename) return;
@@ -166,7 +160,6 @@ const createConsultantAccount = async (req, res) => {
       companyName
     } = req.body;
 
-    // Validation
     if (!name || !email || !password || !mobileNumber || !location) {
       return res.status(400).json({
         success: false,
@@ -174,7 +167,6 @@ const createConsultantAccount = async (req, res) => {
       });
     }
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
@@ -183,7 +175,6 @@ const createConsultantAccount = async (req, res) => {
       });
     }
 
-    // Password validation
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -191,19 +182,16 @@ const createConsultantAccount = async (req, res) => {
       });
     }
 
-    // Check if email exists with 'consultant' role
     const emailRoleExists = await checkEmailRoleExists(email, 'consultant');
     if (emailRoleExists) {
       return res.status(400).json({
         success: false,
-        message: 'You already have a Manpower Supplier account with this email. Please login or use a different email.'
+        message: 'You already have a Consultant account with this email. Please login or use a different email.'
       });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Handle profile photo upload
     let profilePhotoUrl = null;
     if (req.files && req.files.profilePhoto && req.files.profilePhoto[0]) {
       try {
@@ -215,15 +203,11 @@ const createConsultantAccount = async (req, res) => {
       }
     }
 
-    // Auto-fill WhatsApp with mobile if not provided
     const finalWhatsappNumber = whatsappNumber || mobileNumber;
-
-    // Split name into first and last name
     const nameParts = name.trim().split(' ');
     const firstName = nameParts[0] || name;
     const lastName = nameParts.slice(1).join(' ') || '';
 
-    // Step 1: Create user in users table
     console.log('👤 Creating user in users table...');
     const userResult = await createUser({
       first_name: firstName,
@@ -239,7 +223,6 @@ const createConsultantAccount = async (req, res) => {
     const userId = userResult.userId;
     console.log('✅ User created with ID:', userId);
 
-    // Step 2: Create consultant profile
     console.log('🏢 Creating consultant profile...');
     await db.query(
       `INSERT INTO consultant_profiles 
@@ -260,8 +243,6 @@ const createConsultantAccount = async (req, res) => {
     console.log(`✅ Consultant account created: ${email} (User ID: ${userId})`);
 
     try {
-      // Generate verification token
-      const crypto = require('crypto');
       const verificationToken = crypto.randomBytes(32).toString('hex');
       const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
       
@@ -271,9 +252,7 @@ const createConsultantAccount = async (req, res) => {
         .replace('T', ' ');
 
       console.log('🔐 Generated verification token for user:', userId);
-      console.log('📅 Token expiry:', tokenExpiry);
 
-      // Save token to database (keep await - this is fast)
       await db.query(
         `UPDATE users 
          SET verification_token = ?, verification_token_expiry = ?
@@ -301,17 +280,13 @@ const createConsultantAccount = async (req, res) => {
         console.log('✅ Both emails sent successfully to:', email);
       })
       .catch(emailError => {
-        // Log error but don't fail the signup
         console.error('⚠️ Email sending failed (non-critical):', emailError.message);
-        console.error('Full error:', emailError);
       });
 
     } catch (tokenError) {
-      // If token generation fails, log but don't block signup
       console.error('⚠️ Verification token error:', tokenError.message);
     }
 
-    // 🎯 RESPONSE SENT IMMEDIATELY (0.5-2 seconds instead of 3-5 minutes!)
     res.status(201).json({
       success: true,
       message: 'Consultant account created successfully! Please check your email to verify your account.',
@@ -328,7 +303,6 @@ const createConsultantAccount = async (req, res) => {
   }
 };
 
-
 // ==========================================
 // GET CONSULTANT PROFILE & ALL FREELANCER PROFILES
 // ==========================================
@@ -338,7 +312,6 @@ const getConsultantProfile = async (req, res) => {
   try {
     console.log('🔍 Fetching consultant profile for user:', userId);
 
-    // Get consultant profile
     const [profiles] = await db.query(
       `SELECT cp.*, u.is_active, u.email_verified
        FROM consultant_profiles cp
@@ -356,7 +329,6 @@ const getConsultantProfile = async (req, res) => {
 
     const profile = profiles[0];
 
-    // Get all freelancer profiles created by this consultant
     const [freelancers] = await db.query(
       `SELECT * FROM manpower_profiles 
        WHERE user_id = ? 
@@ -364,7 +336,6 @@ const getConsultantProfile = async (req, res) => {
       [userId]
     );
 
-    // Parse certificates for each freelancer
     const parsedFreelancers = freelancers.map(freelancer => {
       let certificates = [];
       try {
@@ -403,7 +374,7 @@ const getConsultantProfile = async (req, res) => {
 };
 
 // ==========================================
-// UPDATE CONSULTANT PROFILE
+// UPDATE CONSULTANT PROFILE (FIXED)
 // ==========================================
 const updateConsultantProfile = async (req, res) => {
   const userId = req.user.userId;
@@ -418,10 +389,10 @@ const updateConsultantProfile = async (req, res) => {
       companyName,
       location,
       mobileNumber,
-      whatsappNumber
+      whatsappNumber,
+      removePhoto
     } = req.body;
 
-    // Get current profile
     const [currentProfile] = await db.query(
       'SELECT * FROM consultant_profiles WHERE user_id = ?',
       [userId]
@@ -436,9 +407,16 @@ const updateConsultantProfile = async (req, res) => {
 
     const current = currentProfile[0];
 
-    // Handle profile photo update
+    // Handle profile photo update/removal
     let profilePhotoUrl = current.profile_photo;
-    if (req.files && req.files.profilePhoto && req.files.profilePhoto[0]) {
+    
+    if (removePhoto === 'true') {
+      if (current.profile_photo) {
+        await deleteFromCloudinary(current.profile_photo);
+      }
+      profilePhotoUrl = null;
+      console.log('🗑️ Profile photo removed');
+    } else if (req.files && req.files.profilePhoto && req.files.profilePhoto[0]) {
       try {
         console.log('📸 Uploading new profile photo...');
         
@@ -453,7 +431,6 @@ const updateConsultantProfile = async (req, res) => {
       }
     }
 
-    // Update consultant profile
     await db.query(
       `UPDATE consultant_profiles 
        SET name = ?, company_name = ?, location = ?, mobile_number = ?,
@@ -470,7 +447,6 @@ const updateConsultantProfile = async (req, res) => {
       ]
     );
 
-    // Also update users table
     const nameParts = (name || current.name).trim().split(' ');
     const firstName = nameParts[0];
     const lastName = nameParts.slice(1).join(' ') || '';
@@ -494,7 +470,8 @@ const updateConsultantProfile = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully'
+      message: 'Profile updated successfully',
+      profilePhotoUrl: profilePhotoUrl
     });
 
   } catch (error) {
@@ -508,13 +485,10 @@ const updateConsultantProfile = async (req, res) => {
 };
 
 // ==========================================
-// ADD FREELANCER PROFILE (Consultant creates a worker profile)
-// ==========================================
-// ==========================================
-// ADD FREELANCER PROFILE (Consultant creates a worker profile)
+// ADD FREELANCER PROFILE (FIXED)
 // ==========================================
 const addFreelancerProfile = async (req, res) => {
-  const userId = req.user.userId; // Consultant's user ID
+  const userId = req.user.userId;
 
   try {
     console.log('➕ Adding freelancer profile for consultant:', userId);
@@ -531,7 +505,6 @@ const addFreelancerProfile = async (req, res) => {
       profileDescription
     } = req.body;
 
-    // Validation
     if (!firstName || !lastName || !jobTitle) {
       console.log('❌ Validation failed: Missing required fields');
       return res.status(400).json({
@@ -540,7 +513,6 @@ const addFreelancerProfile = async (req, res) => {
       });
     }
 
-    // Get consultant's contact details
     console.log('🔍 Fetching consultant details for user:', userId);
     const [consultant] = await db.query(
       'SELECT email, mobile_number, whatsapp_number, location FROM consultant_profiles WHERE user_id = ?',
@@ -556,12 +528,7 @@ const addFreelancerProfile = async (req, res) => {
     }
 
     const consultantData = consultant[0];
-    console.log('✅ Consultant data retrieved:', {
-      email: consultantData.email,
-      location: consultantData.location
-    });
 
-    // Handle file uploads
     let profilePhotoUrl = null;
     let cvPath = null;
     let certificatePaths = [];
@@ -588,7 +555,6 @@ const addFreelancerProfile = async (req, res) => {
       }
     }
 
-    // Insert freelancer profile with consultant's user_id
     console.log('💾 Inserting freelancer profile into database...');
     const [result] = await db.query(
       `INSERT INTO manpower_profiles 
@@ -597,13 +563,13 @@ const addFreelancerProfile = async (req, res) => {
        profile_photo, cv_path, certificates) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        userId, // Consultant's user_id (KEY: This links to consultant)
+        userId,
         firstName,
         lastName,
-        consultantData.email, // Consultant's email
-        consultantData.mobile_number, // Consultant's mobile
-        consultantData.whatsapp_number, // Consultant's WhatsApp
-        consultantData.location, // Consultant's location
+        consultantData.email,
+        consultantData.mobile_number,
+        consultantData.whatsapp_number,
+        consultantData.location,
         jobTitle,
         availabilityStatus || 'available',
         availableFrom || null,
@@ -616,7 +582,6 @@ const addFreelancerProfile = async (req, res) => {
     );
 
     console.log(`✅ Freelancer profile added successfully (ID: ${result.insertId})`);
-    console.log('📊 Insert result:', result);
 
     res.status(201).json({
       success: true,
@@ -626,7 +591,6 @@ const addFreelancerProfile = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Add freelancer profile error:', error);
-    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error adding freelancer profile',
@@ -636,10 +600,10 @@ const addFreelancerProfile = async (req, res) => {
 };
 
 // ==========================================
-// UPDATE FREELANCER PROFILE
+// UPDATE FREELANCER PROFILE (FIXED - CERTIFICATE PRESERVATION)
 // ==========================================
 const updateFreelancerProfile = async (req, res) => {
-  const userId = req.user.userId; // Consultant's user ID
+  const userId = req.user.userId;
   const freelancerId = req.params.id;
 
   try {
@@ -655,10 +619,10 @@ const updateFreelancerProfile = async (req, res) => {
       profileDescription,
       removePhoto,
       removeCv,
-      deleteCertificates
+      deleteCertificates,
+      keepExistingCertificates
     } = req.body;
 
-    // Check if freelancer belongs to this consultant
     const [freelancer] = await db.query(
       'SELECT * FROM manpower_profiles WHERE id = ? AND user_id = ?',
       [freelancerId, userId]
@@ -673,7 +637,7 @@ const updateFreelancerProfile = async (req, res) => {
 
     const current = freelancer[0];
 
-    // Handle profile photo update/removal
+    // Handle profile photo
     let profilePhotoUrl = current.profile_photo;
     
     if (removePhoto === 'true') {
@@ -697,7 +661,7 @@ const updateFreelancerProfile = async (req, res) => {
       }
     }
 
-    // Handle CV update/removal
+    // Handle CV
     let cvPath = current.cv_path;
     
     if (removeCv === 'true') {
@@ -717,15 +681,24 @@ const updateFreelancerProfile = async (req, res) => {
       console.log('✅ New CV saved:', cvPath);
     }
 
-    // Handle certificates update and deletion
+    // 🔥 CRITICAL FIX: Certificate preservation logic
     let certificatePaths = [];
     try {
-      certificatePaths = current.certificates ? JSON.parse(current.certificates) : [];
+      if (current.certificates) {
+        if (Buffer.isBuffer(current.certificates)) {
+          certificatePaths = JSON.parse(current.certificates.toString('utf8'));
+        } else if (typeof current.certificates === 'string') {
+          certificatePaths = JSON.parse(current.certificates);
+        } else if (Array.isArray(current.certificates)) {
+          certificatePaths = current.certificates;
+        }
+      }
     } catch (e) {
+      console.error('Error parsing existing certificates:', e);
       certificatePaths = [];
     }
 
-    // Delete marked certificates
+    // Delete marked certificates FIRST
     if (deleteCertificates) {
       try {
         const certsToDelete = JSON.parse(deleteCertificates);
@@ -742,41 +715,62 @@ const updateFreelancerProfile = async (req, res) => {
       }
     }
 
-    // Add new certificates
+    // Add NEW certificates (if any)
     if (req.files && req.files.certificates && req.files.certificates.length > 0) {
       console.log('🏆 Adding new certificates...');
       
       const newCertificates = req.files.certificates.map(file => file.filename);
       certificatePaths = [...certificatePaths, ...newCertificates];
       
-      console.log('✅ Total certificates:', certificatePaths.length);
+      console.log('✅ Total certificates after addition:', certificatePaths.length);
     }
 
-    // Update freelancer profile
-    await db.query(
-      `UPDATE manpower_profiles 
-       SET first_name = ?, last_name = ?, job_title = ?, 
-           availability_status = ?, available_from = ?, rate = ?,
-           profile_description = ?, profile_photo = ?, cv_path = ?, 
-           certificates = ?, updated_at = NOW()
-       WHERE id = ? AND user_id = ?`,
-      [
-        firstName || current.first_name,
-        lastName || current.last_name,
-        jobTitle || current.job_title,
-        availabilityStatus || current.availability_status,
-        availableFrom || current.available_from,
-        rate || current.rate,
-        profileDescription !== undefined ? profileDescription : current.profile_description,
-        profilePhotoUrl,
-        cvPath,
-        JSON.stringify(certificatePaths),
-        freelancerId,
-        userId
-      ]
-    );
+    // 🔥 CRITICAL: Determine if we should update certificates field
+    const shouldUpdateCertificates = !keepExistingCertificates || 
+                                     deleteCertificates || 
+                                     (req.files && req.files.certificates && req.files.certificates.length > 0);
+
+    // Build update query conditionally
+    const updateFields = [
+      'first_name = ?',
+      'last_name = ?',
+      'job_title = ?',
+      'availability_status = ?',
+      'available_from = ?',
+      'rate = ?',
+      'profile_description = ?',
+      'profile_photo = ?',
+      'cv_path = ?'
+    ];
+
+    const updateValues = [
+      firstName || current.first_name,
+      lastName || current.last_name,
+      jobTitle || current.job_title,
+      availabilityStatus || current.availability_status,
+      availableFrom || current.available_from,
+      rate || current.rate,
+      profileDescription !== undefined ? profileDescription : current.profile_description,
+      profilePhotoUrl,
+      cvPath
+    ];
+
+    if (shouldUpdateCertificates) {
+      updateFields.push('certificates = ?');
+      updateValues.push(JSON.stringify(certificatePaths));
+    }
+
+    updateFields.push('updated_at = NOW()');
+    updateValues.push(freelancerId, userId);
+
+    const updateQuery = `UPDATE manpower_profiles 
+                        SET ${updateFields.join(', ')}
+                        WHERE id = ? AND user_id = ?`;
+
+    await db.query(updateQuery, updateValues);
 
     console.log('✅ Freelancer profile updated successfully');
+    console.log('📊 Final certificate count:', certificatePaths.length);
 
     res.status(200).json({
       success: true,
@@ -803,7 +797,6 @@ const deleteFreelancerProfile = async (req, res) => {
   try {
     console.log('🗑️ Deleting freelancer profile:', freelancerId);
 
-    // Check if freelancer belongs to this consultant
     const [freelancer] = await db.query(
       'SELECT * FROM manpower_profiles WHERE id = ? AND user_id = ?',
       [freelancerId, userId]
@@ -818,7 +811,6 @@ const deleteFreelancerProfile = async (req, res) => {
 
     const profile = freelancer[0];
 
-    // Delete files from Cloudinary and local storage
     if (profile.profile_photo) {
       await deleteFromCloudinary(profile.profile_photo);
     }
@@ -835,7 +827,6 @@ const deleteFreelancerProfile = async (req, res) => {
     }
     certificates.forEach(cert => deleteLocalFile(cert));
 
-    // Delete from database
     await db.query(
       'DELETE FROM manpower_profiles WHERE id = ? AND user_id = ?',
       [freelancerId, userId]

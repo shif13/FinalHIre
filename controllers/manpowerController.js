@@ -534,40 +534,100 @@ const updateProfile = async (req, res) => {
       console.log('✅ New CV saved:', cvPath);
     }
 
-    // Handle certificates update and deletion
-    let certificatePaths = [];
-    try {
-      certificatePaths = current.certificates ? JSON.parse(current.certificates) : [];
-    } catch (e) {
-      certificatePaths = [];
-    }
+    // ✅ AFTER (Preserves existing certificates)
+const { keepExistingCertificates } = req.body;
 
-    // Delete marked certificates
-    if (deleteCertificates) {
-      try {
-        const certsToDelete = JSON.parse(deleteCertificates);
-        console.log('🗑️ Deleting certificates:', certsToDelete);
-        
-        certsToDelete.forEach(certPath => {
-          deleteLocalFile(certPath);
-        });
-        
-        certificatePaths = certificatePaths.filter(cert => !certsToDelete.includes(cert));
-        console.log('✅ Certificates deleted, remaining:', certificatePaths.length);
-      } catch (e) {
-        console.error('Error processing certificate deletions:', e);
-      }
+// Get current certificates
+let certificatePaths = [];
+try {
+  if (current.certificates) {
+    if (Buffer.isBuffer(current.certificates)) {
+      certificatePaths = JSON.parse(current.certificates.toString('utf8'));
+    } else if (typeof current.certificates === 'string') {
+      certificatePaths = JSON.parse(current.certificates);
+    } else if (Array.isArray(current.certificates)) {
+      certificatePaths = current.certificates;
     }
+  }
+} catch (e) {
+  console.error('Error parsing existing certificates:', e);
+  certificatePaths = [];
+}
 
-    // Add new certificates
-    if (req.files && req.files.certificates && req.files.certificates.length > 0) {
-      console.log('🏆 Adding new certificates...');
-      
-      const newCertificates = req.files.certificates.map(file => file.filename);
-      certificatePaths = [...certificatePaths, ...newCertificates];
-      
-      console.log('✅ Total certificates:', certificatePaths.length);
-    }
+// Delete marked certificates FIRST
+if (deleteCertificates) {
+  try {
+    const certsToDelete = JSON.parse(deleteCertificates);
+    console.log('🗑️ Deleting certificates:', certsToDelete);
+    
+    certsToDelete.forEach(certPath => {
+      deleteLocalFile(certPath);
+    });
+    
+    // Remove from array
+    certificatePaths = certificatePaths.filter(cert => !certsToDelete.includes(cert));
+    console.log('✅ Certificates deleted, remaining:', certificatePaths.length);
+  } catch (e) {
+    console.error('Error processing certificate deletions:', e);
+  }
+}
+
+// Add NEW certificates (if any)
+if (req.files && req.files.certificates && req.files.certificates.length > 0) {
+  console.log('🏆 Adding new certificates...');
+  
+  const newCertificates = req.files.certificates.map(file => file.filename);
+  certificatePaths = [...certificatePaths, ...newCertificates]; // ✅ Merges with existing
+  
+  console.log('✅ Total certificates after addition:', certificatePaths.length);
+}
+
+// 🔥 CRITICAL: If keepExistingCertificates flag is set and no new files, 
+// don't update certificates field at all (preserve existing)
+const shouldUpdateCertificates = !keepExistingCertificates || 
+                                 deleteCertificates || 
+                                 (req.files && req.files.certificates && req.files.certificates.length > 0);
+
+// Update query - conditionally update certificates
+await db.query(
+  `UPDATE manpower_profiles 
+   SET first_name = ?, last_name = ?, job_title = ?, availability_status = ?,
+       available_from = ?, location = ?, rate = ?, mobile_number = ?,
+       whatsapp_number = ?, profile_description = ?, profile_photo = ?,
+       cv_path = ?, ${shouldUpdateCertificates ? 'certificates = ?,' : ''} updated_at = NOW()
+   WHERE user_id = ?`,
+  shouldUpdateCertificates ? [
+    firstName || current.first_name,
+    lastName || current.last_name,
+    jobTitle || current.job_title,
+    availabilityStatus || current.availability_status,
+    availableFrom || current.available_from,
+    location || current.location,
+    rate || current.rate,
+    mobileNumber || current.mobile_number,
+    whatsappNumber || current.whatsapp_number,
+    profileDescription !== undefined ? profileDescription : current.profile_description,
+    profilePhotoUrl,
+    cvPath,
+    JSON.stringify(certificatePaths), // ✅ Updated certificates
+    userId
+  ] : [
+    // Same params but WITHOUT certificates
+    firstName || current.first_name,
+    lastName || current.last_name,
+    jobTitle || current.job_title,
+    availabilityStatus || current.availability_status,
+    availableFrom || current.available_from,
+    location || current.location,
+    rate || current.rate,
+    mobileNumber || current.mobile_number,
+    whatsappNumber || current.whatsapp_number,
+    profileDescription !== undefined ? profileDescription : current.profile_description,
+    profilePhotoUrl,
+    cvPath,
+    userId
+  ]
+);
 
     // Update manpower profile
     await db.query(

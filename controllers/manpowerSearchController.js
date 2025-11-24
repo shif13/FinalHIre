@@ -1,6 +1,13 @@
-// controllers/manpowerSearchController.js - DYNAMIC CATEGORIES VERSION
+// controllers/manpowerSearchController.js - OPTIMIZED WITH CACHING
 const db = require('../config/db');
 const { buildLocationQuery } = require('./locationSearchHelper');
+const NodeCache = require('node-cache');
+
+// Create cache instance - categories refresh every 2 hours
+const categoryCache = new NodeCache({ 
+  stdTTL: 7200, // 2 hours in seconds
+  checkperiod: 600 // Check for expired keys every 10 minutes
+});
 
 const searchManpower = async (req, res) => {
   const startTime = Date.now();
@@ -216,13 +223,26 @@ const getManpowerDetails = async (req, res) => {
 };
 
 // ==========================================
-// DYNAMIC CATEGORIES - AUTO-GENERATED FROM DATABASE
+// OPTIMIZED CATEGORIES - WITH CACHING
 // ==========================================
 const getProfessionalCategories = async (req, res) => {
   try {
-    console.log('🔍 Generating dynamic categories from database...');
+    const cacheKey = 'professional_categories';
+    
+    // Try to get from cache first
+    const cachedData = categoryCache.get(cacheKey);
+    if (cachedData) {
+      console.log('✅ Returning categories from cache');
+      return res.json({
+        ...cachedData,
+        cached: true,
+        cacheAge: Math.floor((Date.now() - cachedData.cachedAt) / 1000) + 's'
+      });
+    }
 
-    // Get all unique job titles with their counts
+    console.log('🔄 Cache miss - fetching categories from database...');
+
+    // Optimized query - only get top 20 categories
     const query = `
       SELECT 
         TRIM(job_title) as job_title,
@@ -232,12 +252,13 @@ const getProfessionalCategories = async (req, res) => {
         AND job_title != '' 
         AND TRIM(job_title) != ''
       GROUP BY TRIM(job_title)
-      ORDER BY count DESC, job_title ASC
+      ORDER BY count DESC
+      LIMIT 20
     `;
 
     const [results] = await db.query(query);
 
-    console.log(`✅ Found ${results.length} unique job categories`);
+    console.log(`✅ Found ${results.length} top job categories`);
 
     // Format the categories
     const categories = results.map(row => ({
@@ -245,15 +266,25 @@ const getProfessionalCategories = async (req, res) => {
       count: row.count
     }));
 
-    // Calculate total professionals
+    // Calculate total professionals (from these top categories)
     const totalProfessionals = categories.reduce((sum, cat) => sum + cat.count, 0);
 
-    res.json({
+    const response = {
       success: true,
       categories: categories,
       totalCategories: categories.length,
       totalProfessionals: totalProfessionals,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      cachedAt: Date.now()
+    };
+
+    // Store in cache
+    categoryCache.set(cacheKey, response);
+    console.log('💾 Categories cached for 2 hours');
+
+    res.json({
+      ...response,
+      cached: false
     });
 
   } catch (error) {
@@ -263,6 +294,30 @@ const getProfessionalCategories = async (req, res) => {
       message: 'Error fetching professional categories',
       error: error.message,
       timestamp: new Date().toISOString()
+    });
+  }
+};
+
+// Helper function to manually clear cache (useful for admin actions)
+const clearCategoryCache = () => {
+  categoryCache.del('professional_categories');
+  console.log('🗑️  Category cache cleared');
+};
+
+// Optional: Add endpoint to clear cache manually
+const refreshCategories = async (req, res) => {
+  try {
+    clearCategoryCache();
+    res.json({
+      success: true,
+      message: 'Category cache cleared. Next request will fetch fresh data.',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error clearing cache',
+      error: error.message
     });
   }
 };
@@ -312,5 +367,7 @@ module.exports = {
   getManpowerDetails,
   getSearchStats,
   getProfessionalCategories,
-  getFeaturedManpower
+  getFeaturedManpower,
+  refreshCategories,
+  clearCategoryCache
 };

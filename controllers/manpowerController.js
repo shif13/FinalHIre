@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { createUser, checkEmailRoleExists } = require('./userController');
 const emailService = require('../services/emailService');
+const { clearCategoryCache } = require('./manpowerSearchController'); // ✅ ADD THIS LINE
 
 // Create manpower_profiles table if it doesn't exist
 const createManpowerTable = async () => {
@@ -343,6 +344,10 @@ const createManpowerAccount = async (req, res) => {
 
     console.log(`✅ Manpower account created: ${trimmedEmail} (User ID: ${userId})`);
 
+    // ✅ CLEAR CACHE - New job title added to database
+    clearCategoryCache();
+    console.log('🔄 Category cache cleared for new profile');
+
     // Send welcome email (don't fail if email fails)
     try {
       await emailService.sendWelcomeEmail({
@@ -534,100 +539,53 @@ const updateProfile = async (req, res) => {
       console.log('✅ New CV saved:', cvPath);
     }
 
-    // ✅ AFTER (Preserves existing certificates)
-const { keepExistingCertificates } = req.body;
+    // Handle certificates
+    const { keepExistingCertificates } = req.body;
 
-// Get current certificates
-let certificatePaths = [];
-try {
-  if (current.certificates) {
-    if (Buffer.isBuffer(current.certificates)) {
-      certificatePaths = JSON.parse(current.certificates.toString('utf8'));
-    } else if (typeof current.certificates === 'string') {
-      certificatePaths = JSON.parse(current.certificates);
-    } else if (Array.isArray(current.certificates)) {
-      certificatePaths = current.certificates;
+    // Get current certificates
+    let certificatePaths = [];
+    try {
+      if (current.certificates) {
+        if (Buffer.isBuffer(current.certificates)) {
+          certificatePaths = JSON.parse(current.certificates.toString('utf8'));
+        } else if (typeof current.certificates === 'string') {
+          certificatePaths = JSON.parse(current.certificates);
+        } else if (Array.isArray(current.certificates)) {
+          certificatePaths = current.certificates;
+        }
+      }
+    } catch (e) {
+      console.error('Error parsing existing certificates:', e);
+      certificatePaths = [];
     }
-  }
-} catch (e) {
-  console.error('Error parsing existing certificates:', e);
-  certificatePaths = [];
-}
 
-// Delete marked certificates FIRST
-if (deleteCertificates) {
-  try {
-    const certsToDelete = JSON.parse(deleteCertificates);
-    console.log('🗑️ Deleting certificates:', certsToDelete);
-    
-    certsToDelete.forEach(certPath => {
-      deleteLocalFile(certPath);
-    });
-    
-    // Remove from array
-    certificatePaths = certificatePaths.filter(cert => !certsToDelete.includes(cert));
-    console.log('✅ Certificates deleted, remaining:', certificatePaths.length);
-  } catch (e) {
-    console.error('Error processing certificate deletions:', e);
-  }
-}
+    // Delete marked certificates FIRST
+    if (deleteCertificates) {
+      try {
+        const certsToDelete = JSON.parse(deleteCertificates);
+        console.log('🗑️ Deleting certificates:', certsToDelete);
+        
+        certsToDelete.forEach(certPath => {
+          deleteLocalFile(certPath);
+        });
+        
+        // Remove from array
+        certificatePaths = certificatePaths.filter(cert => !certsToDelete.includes(cert));
+        console.log('✅ Certificates deleted, remaining:', certificatePaths.length);
+      } catch (e) {
+        console.error('Error processing certificate deletions:', e);
+      }
+    }
 
-// Add NEW certificates (if any)
-if (req.files && req.files.certificates && req.files.certificates.length > 0) {
-  console.log('🏆 Adding new certificates...');
-  
-  const newCertificates = req.files.certificates.map(file => file.filename);
-  certificatePaths = [...certificatePaths, ...newCertificates]; // ✅ Merges with existing
-  
-  console.log('✅ Total certificates after addition:', certificatePaths.length);
-}
-
-// 🔥 CRITICAL: If keepExistingCertificates flag is set and no new files, 
-// don't update certificates field at all (preserve existing)
-const shouldUpdateCertificates = !keepExistingCertificates || 
-                                 deleteCertificates || 
-                                 (req.files && req.files.certificates && req.files.certificates.length > 0);
-
-// Update query - conditionally update certificates
-await db.query(
-  `UPDATE manpower_profiles 
-   SET first_name = ?, last_name = ?, job_title = ?, availability_status = ?,
-       available_from = ?, location = ?, rate = ?, mobile_number = ?,
-       whatsapp_number = ?, profile_description = ?, profile_photo = ?,
-       cv_path = ?, ${shouldUpdateCertificates ? 'certificates = ?,' : ''} updated_at = NOW()
-   WHERE user_id = ?`,
-  shouldUpdateCertificates ? [
-    firstName || current.first_name,
-    lastName || current.last_name,
-    jobTitle || current.job_title,
-    availabilityStatus || current.availability_status,
-    availableFrom || current.available_from,
-    location || current.location,
-    rate || current.rate,
-    mobileNumber || current.mobile_number,
-    whatsappNumber || current.whatsapp_number,
-    profileDescription !== undefined ? profileDescription : current.profile_description,
-    profilePhotoUrl,
-    cvPath,
-    JSON.stringify(certificatePaths), // ✅ Updated certificates
-    userId
-  ] : [
-    // Same params but WITHOUT certificates
-    firstName || current.first_name,
-    lastName || current.last_name,
-    jobTitle || current.job_title,
-    availabilityStatus || current.availability_status,
-    availableFrom || current.available_from,
-    location || current.location,
-    rate || current.rate,
-    mobileNumber || current.mobile_number,
-    whatsappNumber || current.whatsapp_number,
-    profileDescription !== undefined ? profileDescription : current.profile_description,
-    profilePhotoUrl,
-    cvPath,
-    userId
-  ]
-);
+    // Add NEW certificates (if any)
+    if (req.files && req.files.certificates && req.files.certificates.length > 0) {
+      console.log('🏆 Adding new certificates...');
+      
+      const newCertificates = req.files.certificates.map(file => file.filename);
+      certificatePaths = [...certificatePaths, ...newCertificates];
+      
+      console.log('✅ Total certificates after addition:', certificatePaths.length);
+    }
 
     // Update manpower profile
     await db.query(
@@ -672,6 +630,12 @@ await db.query(
     );
 
     console.log('✅ Profile updated successfully');
+
+    // ✅ CLEAR CACHE - Only if job title changed
+    if (jobTitle && jobTitle !== current.job_title) {
+      clearCategoryCache();
+      console.log('🔄 Category cache cleared due to job title change');
+    }
 
     res.status(200).json({
       success: true,

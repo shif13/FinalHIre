@@ -754,6 +754,53 @@ const getOwnerProfile = async (req, res) => {
   }
 };
 
+// Add this NEW function to controllers/equipmentController.js
+// Add it BEFORE the module.exports at the end
+
+// ==========================================
+// UPLOAD EQUIPMENT IMAGES (NEW ENDPOINT)
+// ==========================================
+const uploadEquipmentImages = async (req, res) => {
+  try {
+    console.log('📤 Upload equipment images called');
+    console.log('📎 Files:', req.files);
+
+    if (!req.files || !req.files.equipmentImages) {
+      return res.status(400).json({
+        success: false,
+        message: 'No images provided'
+      });
+    }
+
+    // Handle both single and multiple files
+    const files = Array.isArray(req.files.equipmentImages) 
+      ? req.files.equipmentImages 
+      : [req.files.equipmentImages];
+
+    console.log('📤 Uploading', files.length, 'images to Cloudinary...');
+
+    // Upload all images to Cloudinary
+    const uploadPromises = files.map(file => uploadToCloudinary(file.path));
+    const imageUrls = await Promise.all(uploadPromises);
+
+    console.log('✅ Images uploaded to Cloudinary:', imageUrls);
+
+    res.status(200).json({
+      success: true,
+      imageUrls: imageUrls,
+      count: imageUrls.length
+    });
+
+  } catch (error) {
+    console.error('❌ Image upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading images',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createEquipmentOwnerAccount,
   getEquipmentOwnerProfile,
@@ -761,5 +808,6 @@ module.exports = {
   addEquipment,
   updateEquipment,
   deleteEquipment,
-  getOwnerProfile
+  getOwnerProfile,
+  uploadEquipmentImages
 };

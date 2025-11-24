@@ -1,4 +1,4 @@
-// routes/manpowerSearchRoutes.js
+// routes/manpowerSearchRoutes.js - CORRECTED
 const express = require('express');
 const router = express.Router();
 const {
@@ -6,7 +6,8 @@ const {
   getManpowerDetails,
   getSearchStats,
   getProfessionalCategories,
-  getFeaturedManpower
+  getFeaturedManpower,
+  refreshCategories  
 } = require('../controllers/manpowerSearchController');
 
 // Public search routes
@@ -15,5 +16,6 @@ router.get('/details/:manpowerId', getManpowerDetails);
 router.get('/stats', getSearchStats);
 router.get('/categories', getProfessionalCategories);
 router.get('/featured', getFeaturedManpower);
+router.get('/categories/refresh', refreshCategories);  
 
 module.exports = router;

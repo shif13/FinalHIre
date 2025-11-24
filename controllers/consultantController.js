@@ -374,7 +374,7 @@ const getConsultantProfile = async (req, res) => {
 };
 
 // ==========================================
-// UPDATE CONSULTANT PROFILE (FIXED)
+// UPDATE CONSULTANT PROFILE
 // ==========================================
 const updateConsultantProfile = async (req, res) => {
   const userId = req.user.userId;
@@ -485,7 +485,7 @@ const updateConsultantProfile = async (req, res) => {
 };
 
 // ==========================================
-// ADD FREELANCER PROFILE (FIXED)
+// ADD FREELANCER PROFILE
 // ==========================================
 const addFreelancerProfile = async (req, res) => {
   const userId = req.user.userId;
@@ -600,7 +600,7 @@ const addFreelancerProfile = async (req, res) => {
 };
 
 // ==========================================
-// UPDATE FREELANCER PROFILE (FIXED - CERTIFICATE PRESERVATION)
+// UPDATE FREELANCER PROFILE (✅ FIXED - CERTIFICATE PRESERVATION)
 // ==========================================
 const updateFreelancerProfile = async (req, res) => {
   const userId = req.user.userId;
@@ -608,6 +608,8 @@ const updateFreelancerProfile = async (req, res) => {
 
   try {
     console.log('🔄 Updating freelancer profile:', freelancerId);
+    console.log('📦 Body:', req.body);
+    console.log('📎 Files:', req.files);
 
     const {
       firstName,
@@ -620,7 +622,7 @@ const updateFreelancerProfile = async (req, res) => {
       removePhoto,
       removeCv,
       deleteCertificates,
-      keepExistingCertificates
+      keepExistingCertificates  // ✅ FLAG FROM FRONTEND
     } = req.body;
 
     const [freelancer] = await db.query(
@@ -681,8 +683,10 @@ const updateFreelancerProfile = async (req, res) => {
       console.log('✅ New CV saved:', cvPath);
     }
 
-    // 🔥 CRITICAL FIX: Certificate preservation logic
+    // ✅ CRITICAL FIX: Certificate preservation logic
     let certificatePaths = [];
+    
+    // Parse existing certificates
     try {
       if (current.certificates) {
         if (Buffer.isBuffer(current.certificates)) {
@@ -698,7 +702,9 @@ const updateFreelancerProfile = async (req, res) => {
       certificatePaths = [];
     }
 
-    // Delete marked certificates FIRST
+    console.log('📊 Initial certificate count:', certificatePaths.length);
+
+    // Delete marked certificates FIRST (if any)
     if (deleteCertificates) {
       try {
         const certsToDelete = JSON.parse(deleteCertificates);
@@ -725,10 +731,13 @@ const updateFreelancerProfile = async (req, res) => {
       console.log('✅ Total certificates after addition:', certificatePaths.length);
     }
 
-    // 🔥 CRITICAL: Determine if we should update certificates field
-    const shouldUpdateCertificates = !keepExistingCertificates || 
-                                     deleteCertificates || 
+    // ✅ CRITICAL FIX: Only update certificates field if explicitly modifying them
+    // This prevents accidental deletion when just updating other fields
+    const shouldUpdateCertificates = deleteCertificates || 
                                      (req.files && req.files.certificates && req.files.certificates.length > 0);
+
+    console.log('🔍 Should update certificates?', shouldUpdateCertificates);
+    console.log('🔍 Keep existing flag:', keepExistingCertificates);
 
     // Build update query conditionally
     const updateFields = [
@@ -755,9 +764,13 @@ const updateFreelancerProfile = async (req, res) => {
       cvPath
     ];
 
+    // ✅ Only update certificates if we're explicitly modifying them
     if (shouldUpdateCertificates) {
       updateFields.push('certificates = ?');
       updateValues.push(JSON.stringify(certificatePaths));
+      console.log('📝 Updating certificates field with:', certificatePaths.length, 'certificates');
+    } else {
+      console.log('⏭️ Skipping certificates update - preserving existing');
     }
 
     updateFields.push('updated_at = NOW()');
@@ -767,6 +780,7 @@ const updateFreelancerProfile = async (req, res) => {
                         SET ${updateFields.join(', ')}
                         WHERE id = ? AND user_id = ?`;
 
+    console.log('🔧 Executing update query...');
     await db.query(updateQuery, updateValues);
 
     console.log('✅ Freelancer profile updated successfully');

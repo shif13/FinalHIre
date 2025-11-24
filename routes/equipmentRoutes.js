@@ -10,7 +10,8 @@ const {
   addEquipment,
   updateEquipment,
   deleteEquipment,
-  getOwnerProfile
+  getOwnerProfile,
+  uploadEquipmentImages
 } = require('../controllers/equipmentController');
 
 // ==========================================
@@ -32,6 +33,8 @@ router.get('/profile', authenticateToken, getEquipmentOwnerProfile);
 
 // PUT /api/equipment/profile - Update equipment owner profile
 router.put('/profile', authenticateToken, uploadFields, updateEquipmentOwnerProfile);
+
+router.post('/upload-images', authenticateToken, uploadFields, uploadEquipmentImages);
 
 // POST /api/equipment/add - Add new equipment (FIXED ENDPOINT)
 router.post('/add', authenticateToken, addEquipment);

@@ -171,7 +171,7 @@ const sslCertPath = path.join(__dirname, 'cert.pem');
     console.error(`   Looking for certificates at:`);
     console.error(`   Key: ${sslKeyPath}`);
     console.error(`   Cert: ${sslCertPath}`);
-    console.error(`   Please verify the certificate files exist in aaPanel.`);
+    console.error(`   Please verify the certificate files exist.`);
     process.exit(1);
   }
 } else {

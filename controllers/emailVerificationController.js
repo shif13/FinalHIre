@@ -43,6 +43,14 @@ const sendVerificationEmail = async (req, res) => {
       .slice(0, 19)
       .replace('T', ' ');
 
+    console.log('📧 Generating verification token:', {
+      userId: user.id,
+      email: user.email,
+      tokenPreview: verificationToken.substring(0, 10) + '...',
+      hashedPreview: hashedToken.substring(0, 10) + '...',
+      expiry: tokenExpiry
+    });
+
     // Save token to database
     await db.query(
       `UPDATE users 
@@ -51,6 +59,13 @@ const sendVerificationEmail = async (req, res) => {
       [hashedToken, tokenExpiry, userId]
     );
 
+    // Verify the token was saved
+    const [check] = await db.query(
+      'SELECT verification_token FROM users WHERE id = ?',
+      [userId]
+    );
+    console.log('✅ Token saved to DB:', check[0].verification_token?.substring(0, 10) + '...');
+
     // Send verification email
     await emailService.sendVerificationEmail(
       {
@@ -58,7 +73,7 @@ const sendVerificationEmail = async (req, res) => {
         firstName: user.first_name,
         lastName: user.last_name
       },
-      verificationToken
+      verificationToken // Send UNHASHED token in email
     );
 
     console.log(`✅ Verification email sent to: ${user.email}`);
@@ -81,16 +96,20 @@ const sendVerificationEmail = async (req, res) => {
 // ==========================================
 // VERIFY EMAIL TOKEN (NO AUTH REQUIRED)
 // ==========================================
-// VERIFY EMAIL TOKEN (NO AUTH REQUIRED)
-// Replace the verifyEmail function in emailVerificationController.js
-
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
 
-    console.log('🔍 Verification attempt with token:', token?.substring(0, 10) + '...');
+    console.log('\n🔍 ===== EMAIL VERIFICATION ATTEMPT =====');
+    console.log('Token received:', {
+      exists: !!token,
+      length: token?.length,
+      preview: token?.substring(0, 10) + '...',
+      full: token // Log full token for debugging (remove in production)
+    });
 
     if (!token) {
+      console.log('❌ No token provided');
       return res.status(400).json({
         success: false,
         message: 'Verification token is required'
@@ -100,20 +119,75 @@ const verifyEmail = async (req, res) => {
     // Hash the token to compare with database
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     
-    console.log('🔐 Looking for hashed token in database...');
+    console.log('🔐 Token hashing:', {
+      originalPreview: token.substring(0, 10) + '...',
+      hashedPreview: hashedToken.substring(0, 10) + '...',
+      hashedFull: hashedToken // Log full hash for debugging (remove in production)
+    });
 
     // Find user with this token
     const [users] = await db.query(
-      `SELECT id, first_name, last_name, email, email_verified, verification_token_expiry
+      `SELECT id, first_name, last_name, email, email_verified, 
+              verification_token, verification_token_expiry
        FROM users 
        WHERE verification_token = ?`,
       [hashedToken]
     );
 
-    console.log('📊 Query result:', users.length > 0 ? 'User found' : 'No user found');
+    console.log('📊 Database query result:', {
+      usersFound: users.length,
+      query: 'SELECT ... WHERE verification_token = ?'
+    });
+
+    if (users.length > 0) {
+      console.log('✅ User found:', {
+        id: users[0].id,
+        email: users[0].email,
+        emailVerified: users[0].email_verified,
+        tokenInDb: users[0].verification_token?.substring(0, 10) + '...',
+        tokenExpiry: users[0].verification_token_expiry
+      });
+    } else {
+      console.log('❌ No user found with this token');
+      
+      // Additional debugging - check if any tokens exist
+      const [allTokens] = await db.query(
+        'SELECT id, email, verification_token FROM users WHERE verification_token IS NOT NULL LIMIT 5'
+      );
+      console.log('📋 Sample of tokens in database:', 
+        allTokens.map(u => ({
+          id: u.id,
+          email: u.email,
+          tokenPreview: u.verification_token?.substring(0, 10) + '...'
+        }))
+      );
+    }
 
     if (users.length === 0) {
-      console.log('❌ No user found with this token');
+      // Check if there's a recently verified user (token was cleared after verification)
+      const [recentlyVerified] = await db.query(
+        `SELECT id, first_name, last_name, email, email_verified 
+         FROM users 
+         WHERE email_verified = true 
+         AND updated_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+         ORDER BY updated_at DESC 
+         LIMIT 1`
+      );
+      
+      if (recentlyVerified.length > 0) {
+        console.log('✅ Found recently verified user, likely double request');
+        return res.status(200).json({
+          success: true,
+          message: 'Email already verified',
+          alreadyVerified: true,
+          user: {
+            firstName: recentlyVerified[0].first_name,
+            lastName: recentlyVerified[0].last_name,
+            email: recentlyVerified[0].email
+          }
+        });
+      }
+      
       return res.status(400).json({
         success: false,
         message: 'Invalid verification token. The link may be incorrect or already used.'
@@ -127,9 +201,10 @@ const verifyEmail = async (req, res) => {
     const expiry = new Date(user.verification_token_expiry);
     
     console.log('⏰ Token expiry check:', {
-      now: now.toISOString(),
-      expiry: expiry.toISOString(),
-      expired: now > expiry
+      currentTime: now.toISOString(),
+      expiryTime: expiry.toISOString(),
+      isExpired: now > expiry,
+      timeRemaining: expiry - now > 0 ? `${Math.floor((expiry - now) / 1000 / 60)} minutes` : 'expired'
     });
 
     if (now > expiry) {
@@ -157,7 +232,8 @@ const verifyEmail = async (req, res) => {
     }
 
     // Mark email as verified
-    await db.query(
+    console.log('🔄 Updating user verification status...');
+    const [updateResult] = await db.query(
       `UPDATE users 
        SET email_verified = true, 
            verification_token = NULL, 
@@ -167,7 +243,20 @@ const verifyEmail = async (req, res) => {
       [user.id]
     );
 
+    console.log('✅ Update result:', {
+      affectedRows: updateResult.affectedRows,
+      changedRows: updateResult.changedRows
+    });
+
+    // Verify the update
+    const [verifyUpdate] = await db.query(
+      'SELECT email_verified FROM users WHERE id = ?',
+      [user.id]
+    );
+    console.log('✅ Verification status after update:', verifyUpdate[0].email_verified);
+
     console.log(`✅ Email verified successfully for user: ${user.email}`);
+    console.log('===== VERIFICATION COMPLETE =====\n');
 
     res.status(200).json({
       success: true,
@@ -181,6 +270,7 @@ const verifyEmail = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Email verification error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error verifying email. Please try again or contact support.',

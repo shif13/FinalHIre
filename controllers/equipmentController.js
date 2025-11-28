@@ -75,14 +75,27 @@ const createEquipmentTable = async () => {
     
     // Add equipment_documents column if it doesn't exist (for existing tables)
     try {
-      await db.query(`
-        ALTER TABLE equipment 
-        ADD COLUMN IF NOT EXISTS equipment_documents JSON AFTER equipment_images
+      // Check if column exists first
+      const [columns] = await db.query(`
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'equipment' 
+        AND COLUMN_NAME = 'equipment_documents'
       `);
-      console.log('✅ Added equipment_documents column');
+
+      if (columns.length === 0) {
+        // Column doesn't exist, add it
+        await db.query(`
+          ALTER TABLE equipment 
+          ADD COLUMN equipment_documents JSON AFTER equipment_images
+        `);
+        console.log('✅ Added equipment_documents column');
+      } else {
+        console.log('ℹ️ equipment_documents column already exists');
+      }
     } catch (alterError) {
-      // Column might already exist, that's fine
-      console.log('ℹ️ equipment_documents column already exists or alter not needed');
+      console.error('❌ Error checking/adding equipment_documents column:', alterError);
     }
   } catch (error) {
     console.error('❌ Error creating equipment table:', error);

@@ -579,8 +579,110 @@ const logout = async (req, res) => {
   });
 };
 
+// Add this NEW function to controllers/loginController.js
+
+// Login WITH ROLE CHECK - NEW ENDPOINT
+const loginWithRole = async (req, res) => {
+  const { email, password, requestedRole } = req.body;
+
+  if (!email || !password || !requestedRole) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email, password, and role are required'
+    });
+  }
+
+  try {
+    // Get user account for the REQUESTED ROLE ONLY
+    const [users] = await db.query(
+      `SELECT id, first_name, last_name, email, password, mobile_number, whatsapp_number, 
+              location, user_type, is_active, email_verified
+       FROM users 
+       WHERE email = ? AND user_type = ?`,
+      [email, requestedRole]
+    );
+
+    // No account found for this role
+    if (users.length === 0) {
+      // Check if user exists with OTHER roles
+      const [otherAccounts] = await db.query(
+        'SELECT user_type FROM users WHERE email = ?',
+        [email]
+      );
+
+      if (otherAccounts.length > 0) {
+        // User exists but not for requested role
+        return res.status(403).json({
+          success: false,
+          noAccountForRole: true,
+          message: `You don't have an account for this role`,
+          existingRoles: otherAccounts.map(acc => acc.user_type)
+        });
+      }
+
+      // User doesn't exist at all
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    const user = users[0];
+
+    // Check if account is active
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact support.'
+      });
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    // Update last login
+    await db.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
+
+    // Generate token
+    const token = generateToken(user.id, user.email, user.user_type);
+    delete user.password;
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user.id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+        mobile_number: user.mobile_number,
+        whatsapp_number: user.whatsapp_number,
+        location: user.location,
+        user_type: user.user_type,
+        email_verified: user.email_verified
+      }
+    });
+
+  } catch (error) {
+    console.error('Login with role error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
+  }
+};
+
 module.exports = {
   login,
+  loginWithRole,
   forgotPassword,
   verifyResetToken,
   resetPassword,

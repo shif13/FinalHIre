@@ -4,6 +4,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const {
   login,
+  loginWithRole,
   forgotPassword,
   verifyResetToken,
   resetPassword,
@@ -13,6 +14,9 @@ const {
 
 // POST /api/auth/login - User login
 router.post('/login', login);
+
+
+router.post('/login-with-role', loginWithRole);
 
 // POST /api/auth/forgot-password - Request password reset
 router.post('/forgot-password', forgotPassword);
@@ -28,5 +32,6 @@ router.post('/change-password', authenticateToken, changePassword);
 
 // POST /api/auth/logout - Logout user
 router.post('/logout', authenticateToken, logout);
+
 
 module.exports = router;

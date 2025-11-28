@@ -1,4 +1,4 @@
-// controllers/equipmentSearchController.js - STEP 1 FIX
+// controllers/equipmentSearchController.js - WITH DOCUMENTS SUPPORT
 const db = require('../config/db');
 const { buildLocationQuery } = require('./locationSearchHelper');
 
@@ -28,6 +28,7 @@ const searchEquipment = async (req, res) => {
         e.contact_email as contactEmail,
         e.description,
         e.equipment_images as equipmentImages,
+        e.equipment_documents as equipmentDocuments,
         e.created_at
       FROM equipment e
       WHERE e.is_active = TRUE
@@ -48,7 +49,7 @@ const searchEquipment = async (req, res) => {
       params.push(`%${location.trim()}%`);
     }
 
-    // Availability filter - THIS IS THE KEY FIX
+    // Availability filter
     if (availability && availability !== 'all') {
       query += ` AND e.availability = ?`;
       params.push(availability);
@@ -64,9 +65,10 @@ const searchEquipment = async (req, res) => {
 
     console.log(`✅ Found ${results.length} equipment items`);
 
-    // Parse equipment_images JSON
+    // Parse equipment_images and equipment_documents JSON
     const equipment = results.map(item => {
       let parsedImages = [];
+      let parsedDocuments = [];
       
       try {
         if (Buffer.isBuffer(item.equipmentImages)) {
@@ -81,9 +83,23 @@ const searchEquipment = async (req, res) => {
         parsedImages = [];
       }
 
+      try {
+        if (Buffer.isBuffer(item.equipmentDocuments)) {
+          parsedDocuments = JSON.parse(item.equipmentDocuments.toString('utf8'));
+        } else if (typeof item.equipmentDocuments === 'string' && item.equipmentDocuments.trim()) {
+          parsedDocuments = JSON.parse(item.equipmentDocuments);
+        } else if (Array.isArray(item.equipmentDocuments)) {
+          parsedDocuments = item.equipmentDocuments;
+        }
+      } catch (e) {
+        console.error('Error parsing equipment documents:', e);
+        parsedDocuments = [];
+      }
+
       return {
         ...item,
-        equipmentImages: parsedImages
+        equipmentImages: parsedImages,
+        equipmentDocuments: parsedDocuments
       };
     });
 
@@ -102,7 +118,6 @@ const searchEquipment = async (req, res) => {
     });
   }
 };
-
 
 /**
  * Get all unique locations from equipment
@@ -201,6 +216,7 @@ const getEquipmentById = async (req, res) => {
         availability,
         description,
         equipment_images as equipmentImages,
+        equipment_documents as equipmentDocuments,
         created_at as createdAt,
         updated_at as updatedAt
       FROM equipment
@@ -235,7 +251,24 @@ const getEquipmentById = async (req, res) => {
       console.error('Error parsing images:', parseError);
     }
 
+    // Parse documents
+    let documents = [];
+    try {
+      if (equipment.equipmentDocuments) {
+        if (Buffer.isBuffer(equipment.equipmentDocuments)) {
+          documents = JSON.parse(equipment.equipmentDocuments.toString('utf8'));
+        } else if (typeof equipment.equipmentDocuments === 'string') {
+          documents = JSON.parse(equipment.equipmentDocuments);
+        } else if (Array.isArray(equipment.equipmentDocuments)) {
+          documents = equipment.equipmentDocuments;
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing documents:', parseError);
+    }
+
     equipment.equipmentImages = images;
+    equipment.equipmentDocuments = documents;
 
     res.status(200).json({
       success: true,
@@ -254,10 +287,6 @@ const getEquipmentById = async (req, res) => {
     });
   }
 };
-
-/**
- * Get owner profile by user ID
- */
 
 // ==========================================
 // GET OWNER PROFILE (Public Access)
@@ -302,6 +331,7 @@ const getOwnerProfile = async (req, res) => {
     });
   }
 };
+
 module.exports = {
   searchEquipment,
   getLocations,

@@ -11,7 +11,8 @@ const {
   updateEquipment,
   deleteEquipment,
   getOwnerProfile,
-  uploadEquipmentImages
+  uploadEquipmentImages,
+  uploadEquipmentDocuments
 } = require('../controllers/equipmentController');
 
 // ==========================================
@@ -34,15 +35,19 @@ router.get('/profile', authenticateToken, getEquipmentOwnerProfile);
 // PUT /api/equipment/profile - Update equipment owner profile
 router.put('/profile', authenticateToken, uploadFields, updateEquipmentOwnerProfile);
 
+// POST /api/equipment/upload-images - Upload equipment images to Cloudinary
 router.post('/upload-images', authenticateToken, uploadFields, uploadEquipmentImages);
 
-// POST /api/equipment/add - Add new equipment (FIXED ENDPOINT)
+// POST /api/equipment/upload-documents - Upload equipment documents to Cloudinary
+router.post('/upload-documents', authenticateToken, uploadFields, uploadEquipmentDocuments);
+
+// POST /api/equipment/add - Add new equipment
 router.post('/add', authenticateToken, addEquipment);
 
-// PUT /api/equipment/update/:id - Update equipment (FIXED ENDPOINT)
+// PUT /api/equipment/update/:id - Update equipment
 router.put('/update/:id', authenticateToken, updateEquipment);
 
-// DELETE /api/equipment/delete/:id - Delete equipment (FIXED ENDPOINT)
+// DELETE /api/equipment/delete/:id - Delete equipment
 router.delete('/delete/:id', authenticateToken, deleteEquipment);
 
 // ==========================================

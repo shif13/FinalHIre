@@ -41,7 +41,7 @@ const createEquipmentOwnerProfilesTable = async () => {
 };
 
 // ==========================================
-// CREATE EQUIPMENT TABLE (Individual Listings)
+// CREATE EQUIPMENT TABLE - WITH DOCUMENTS SUPPORT
 // ==========================================
 const createEquipmentTable = async () => {
   const createTableQuery = `
@@ -57,6 +57,7 @@ const createEquipmentTable = async () => {
       contact_email VARCHAR(255) NOT NULL,
       description TEXT,
       equipment_images JSON,
+      equipment_documents JSON,
       is_active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -71,6 +72,18 @@ const createEquipmentTable = async () => {
   try {
     await db.query(createTableQuery);
     console.log('✅ Equipment table created or already exists');
+    
+    // Add equipment_documents column if it doesn't exist (for existing tables)
+    try {
+      await db.query(`
+        ALTER TABLE equipment 
+        ADD COLUMN IF NOT EXISTS equipment_documents JSON AFTER equipment_images
+      `);
+      console.log('✅ Added equipment_documents column');
+    } catch (alterError) {
+      // Column might already exist, that's fine
+      console.log('ℹ️ equipment_documents column already exists or alter not needed');
+    }
   } catch (error) {
     console.error('❌ Error creating equipment table:', error);
     throw error;
@@ -92,15 +105,15 @@ const createEquipmentTable = async () => {
 // ==========================================
 
 // Upload image to Cloudinary
-const uploadToCloudinary = async (filePath) => {
+const uploadToCloudinary = async (filePath, folder = 'equipment_images') => {
   try {
     const result = await cloudinary.uploader.upload(filePath, {
-      folder: 'equipment_images',
-      resource_type: 'image',
-      transformation: [
+      folder,
+      resource_type: 'auto',
+      transformation: folder === 'equipment_images' ? [
         { width: 1200, height: 900, crop: 'fill' },
         { quality: 'auto' }
-      ]
+      ] : undefined
     });
     
     fs.unlinkSync(filePath);
@@ -132,15 +145,15 @@ const uploadProfilePhoto = async (filePath) => {
 };
 
 // Delete from Cloudinary
-const deleteFromCloudinary = async (imageUrl) => {
+const deleteFromCloudinary = async (fileUrl) => {
   try {
-    if (!imageUrl) return;
+    if (!fileUrl) return;
     
-    const matches = imageUrl.match(/\/(equipment_images|equipment_owner_profiles)\/([^\.]+)/);
+    const matches = fileUrl.match(/\/(equipment_images|equipment_owner_profiles|equipment_documents)\/([^\.]+)/);
     if (matches && matches[1] && matches[2]) {
       const publicId = `${matches[1]}/${matches[2]}`;
-      await cloudinary.uploader.destroy(publicId);
-      console.log('🗑️ Deleted image from Cloudinary:', publicId);
+      await cloudinary.uploader.destroy(publicId, { resource_type: 'auto' });
+      console.log('🗑️ Deleted from Cloudinary:', publicId);
     }
   } catch (error) {
     console.error('Error deleting from Cloudinary:', error);
@@ -314,7 +327,7 @@ const getEquipmentOwnerProfile = async (req, res) => {
 
     const profile = profiles[0];
 
-    // Get equipment list
+    // Get equipment list with documents
     const [equipment] = await db.query(
       `SELECT * FROM equipment WHERE user_id = ? ORDER BY created_at DESC`,
       [userId]
@@ -323,6 +336,7 @@ const getEquipmentOwnerProfile = async (req, res) => {
     // Parse JSON fields safely
     const equipmentList = equipment.map(eq => {
       let parsedImages = [];
+      let parsedDocuments = [];
 
       try {
         if (Buffer.isBuffer(eq.equipment_images)) {
@@ -337,9 +351,23 @@ const getEquipmentOwnerProfile = async (req, res) => {
         parsedImages = [];
       }
 
+      try {
+        if (Buffer.isBuffer(eq.equipment_documents)) {
+          parsedDocuments = JSON.parse(eq.equipment_documents.toString('utf8'));
+        } else if (typeof eq.equipment_documents === 'string' && eq.equipment_documents.trim()) {
+          parsedDocuments = JSON.parse(eq.equipment_documents);
+        } else if (Array.isArray(eq.equipment_documents)) {
+          parsedDocuments = eq.equipment_documents;
+        }
+      } catch (e) {
+        console.error('Error parsing equipment documents:', e);
+        parsedDocuments = [];
+      }
+
       return {
         ...eq,
-        equipment_images: parsedImages
+        equipment_images: parsedImages,
+        equipment_documents: parsedDocuments
       };
     });
 
@@ -472,7 +500,53 @@ const updateEquipmentOwnerProfile = async (req, res) => {
 };
 
 // ==========================================
-// ADD EQUIPMENT (From Dashboard - Frontend sends Cloudinary URLs)
+// UPLOAD EQUIPMENT DOCUMENTS TO CLOUDINARY
+// ==========================================
+const uploadEquipmentDocuments = async (req, res) => {
+  try {
+    console.log('📤 Upload equipment documents called');
+    console.log('📎 Files:', req.files);
+
+    if (!req.files || !req.files.equipmentDocuments) {
+      return res.status(400).json({
+        success: false,
+        message: 'No documents provided'
+      });
+    }
+
+    // Handle both single and multiple files
+    const files = Array.isArray(req.files.equipmentDocuments) 
+      ? req.files.equipmentDocuments 
+      : [req.files.equipmentDocuments];
+
+    console.log('📤 Uploading', files.length, 'documents to Cloudinary...');
+
+    // Upload all documents to Cloudinary
+    const uploadPromises = files.map(file => 
+      uploadToCloudinary(file.path, 'equipment_documents')
+    );
+    const documentUrls = await Promise.all(uploadPromises);
+
+    console.log('✅ Documents uploaded to Cloudinary:', documentUrls);
+
+    res.status(200).json({
+      success: true,
+      documentUrls: documentUrls,
+      count: documentUrls.length
+    });
+
+  } catch (error) {
+    console.error('❌ Document upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading documents',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// ADD EQUIPMENT WITH DOCUMENTS
 // ==========================================
 const addEquipment = async (req, res) => {
   const userId = req.user.userId;
@@ -491,7 +565,8 @@ const addEquipment = async (req, res) => {
       contactNumber,
       contactEmail,
       description,
-      equipmentImages // Array of Cloudinary URLs from frontend
+      equipmentImages,
+      equipmentDocuments
     } = req.body;
 
     // Validation
@@ -512,13 +587,15 @@ const addEquipment = async (req, res) => {
     }
 
     console.log('📸 Images provided:', equipmentImages?.length || 0);
+    console.log('📄 Documents provided:', equipmentDocuments?.length || 0);
 
-    // Insert equipment
+    // Insert equipment with documents
     const [result] = await db.query(
       `INSERT INTO equipment 
       (user_id, equipment_name, equipment_type, availability, location, 
-       contact_person, contact_number, contact_email, description, equipment_images) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       contact_person, contact_number, contact_email, description, 
+       equipment_images, equipment_documents) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         equipmentName.trim(),
@@ -529,7 +606,8 @@ const addEquipment = async (req, res) => {
         contactNumber.trim(),
         contactEmail.trim().toLowerCase(),
         description ? description.trim() : null,
-        JSON.stringify(equipmentImages || [])
+        JSON.stringify(equipmentImages || []),
+        JSON.stringify(equipmentDocuments || [])
       ]
     );
 
@@ -550,7 +628,8 @@ const addEquipment = async (req, res) => {
         equipmentName: equipmentName.trim(),
         equipmentType: equipmentType.trim(),
         availability: availability || 'available',
-        equipmentImages: equipmentImages || []
+        equipmentImages: equipmentImages || [],
+        equipmentDocuments: equipmentDocuments || []
       },
       processingTime: `${responseTime}ms`
     });
@@ -566,7 +645,7 @@ const addEquipment = async (req, res) => {
 };
 
 // ==========================================
-// UPDATE EQUIPMENT (Frontend sends Cloudinary URLs)
+// UPDATE EQUIPMENT WITH DOCUMENTS
 // ==========================================
 const updateEquipment = async (req, res) => {
   const userId = req.user.userId;
@@ -584,7 +663,8 @@ const updateEquipment = async (req, res) => {
       contactNumber,
       contactEmail,
       description,
-      equipmentImages // Array of Cloudinary URLs from frontend
+      equipmentImages,
+      equipmentDocuments
     } = req.body;
 
     // Check if equipment belongs to user
@@ -600,13 +680,13 @@ const updateEquipment = async (req, res) => {
       });
     }
 
-    // Update equipment
+    // Update equipment with documents
     await db.query(
       `UPDATE equipment 
        SET equipment_name = ?, equipment_type = ?, availability = ?,
            location = ?, contact_person = ?, contact_number = ?,
            contact_email = ?, description = ?, equipment_images = ?,
-           updated_at = NOW()
+           equipment_documents = ?, updated_at = NOW()
        WHERE id = ? AND user_id = ?`,
       [
         equipmentName ? equipmentName.trim() : null,
@@ -618,6 +698,7 @@ const updateEquipment = async (req, res) => {
         contactEmail ? contactEmail.trim().toLowerCase() : null,
         description ? description.trim() : null,
         JSON.stringify(equipmentImages || []),
+        JSON.stringify(equipmentDocuments || []),
         equipmentId,
         userId
       ]
@@ -652,7 +733,7 @@ const deleteEquipment = async (req, res) => {
 
     // Check if equipment belongs to user
     const [equipment] = await db.query(
-      'SELECT equipment_images FROM equipment WHERE id = ? AND user_id = ?',
+      'SELECT equipment_images, equipment_documents FROM equipment WHERE id = ? AND user_id = ?',
       [equipmentId, userId]
     );
 
@@ -663,7 +744,7 @@ const deleteEquipment = async (req, res) => {
       });
     }
 
-    // Delete equipment photos from Cloudinary
+    // Delete equipment images from Cloudinary
     try {
       let images = [];
       if (Buffer.isBuffer(equipment[0].equipment_images)) {
@@ -679,6 +760,24 @@ const deleteEquipment = async (req, res) => {
       }
     } catch (e) {
       console.error('Error deleting equipment images:', e);
+    }
+
+    // Delete equipment documents from Cloudinary
+    try {
+      let documents = [];
+      if (Buffer.isBuffer(equipment[0].equipment_documents)) {
+        documents = JSON.parse(equipment[0].equipment_documents.toString('utf8'));
+      } else if (typeof equipment[0].equipment_documents === 'string') {
+        documents = JSON.parse(equipment[0].equipment_documents);
+      } else if (Array.isArray(equipment[0].equipment_documents)) {
+        documents = equipment[0].equipment_documents;
+      }
+
+      for (const docUrl of documents) {
+        await deleteFromCloudinary(docUrl);
+      }
+    } catch (e) {
+      console.error('Error deleting equipment documents:', e);
     }
 
     // Delete equipment
@@ -705,6 +804,50 @@ const deleteEquipment = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error deleting equipment',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// UPLOAD EQUIPMENT IMAGES
+// ==========================================
+const uploadEquipmentImages = async (req, res) => {
+  try {
+    console.log('📤 Upload equipment images called');
+    console.log('📎 Files:', req.files);
+
+    if (!req.files || !req.files.equipmentImages) {
+      return res.status(400).json({
+        success: false,
+        message: 'No images provided'
+      });
+    }
+
+    // Handle both single and multiple files
+    const files = Array.isArray(req.files.equipmentImages) 
+      ? req.files.equipmentImages 
+      : [req.files.equipmentImages];
+
+    console.log('📤 Uploading', files.length, 'images to Cloudinary...');
+
+    // Upload all images to Cloudinary
+    const uploadPromises = files.map(file => uploadToCloudinary(file.path));
+    const imageUrls = await Promise.all(uploadPromises);
+
+    console.log('✅ Images uploaded to Cloudinary:', imageUrls);
+
+    res.status(200).json({
+      success: true,
+      imageUrls: imageUrls,
+      count: imageUrls.length
+    });
+
+  } catch (error) {
+    console.error('❌ Image upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading images',
       error: error.message
     });
   }
@@ -754,53 +897,6 @@ const getOwnerProfile = async (req, res) => {
   }
 };
 
-// Add this NEW function to controllers/equipmentController.js
-// Add it BEFORE the module.exports at the end
-
-// ==========================================
-// UPLOAD EQUIPMENT IMAGES (NEW ENDPOINT)
-// ==========================================
-const uploadEquipmentImages = async (req, res) => {
-  try {
-    console.log('📤 Upload equipment images called');
-    console.log('📎 Files:', req.files);
-
-    if (!req.files || !req.files.equipmentImages) {
-      return res.status(400).json({
-        success: false,
-        message: 'No images provided'
-      });
-    }
-
-    // Handle both single and multiple files
-    const files = Array.isArray(req.files.equipmentImages) 
-      ? req.files.equipmentImages 
-      : [req.files.equipmentImages];
-
-    console.log('📤 Uploading', files.length, 'images to Cloudinary...');
-
-    // Upload all images to Cloudinary
-    const uploadPromises = files.map(file => uploadToCloudinary(file.path));
-    const imageUrls = await Promise.all(uploadPromises);
-
-    console.log('✅ Images uploaded to Cloudinary:', imageUrls);
-
-    res.status(200).json({
-      success: true,
-      imageUrls: imageUrls,
-      count: imageUrls.length
-    });
-
-  } catch (error) {
-    console.error('❌ Image upload error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error uploading images',
-      error: error.message
-    });
-  }
-};
-
 module.exports = {
   createEquipmentOwnerAccount,
   getEquipmentOwnerProfile,
@@ -809,5 +905,6 @@ module.exports = {
   updateEquipment,
   deleteEquipment,
   getOwnerProfile,
-  uploadEquipmentImages
+  uploadEquipmentImages,
+  uploadEquipmentDocuments
 };

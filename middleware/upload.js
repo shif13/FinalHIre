@@ -61,6 +61,13 @@ const fileFilter = (req, file, cb) => {
     } else {
       cb(new Error('Equipment images must be image files.'), false);
     }
+  } else if (file.fieldname === 'equipmentDocuments') {
+    // Equipment documents can be PDFs, Word docs, or images
+    if ([...docTypes, ...imageTypes].includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Equipment documents must be PDF, Word, or image files.'), false);
+    }
   } else {
     // Allow unknown fields to pass through (for flexibility)
     cb(null, true);
@@ -75,7 +82,7 @@ const upload = multer({
   fileFilter,
   limits: { 
     fileSize: 10 * 1024 * 1024, // 10MB per file
-    files: 20 // Maximum 20 files total
+    files: 30 // Maximum 30 files total
   }
 });
 
@@ -86,7 +93,8 @@ const uploadFields = upload.fields([
   { name: 'profilePhoto', maxCount: 1 },
   { name: 'cv', maxCount: 1 },
   { name: 'certificates', maxCount: 10 },
-  { name: 'equipmentImages', maxCount: 10 }
+  { name: 'equipmentImages', maxCount: 10 },
+  { name: 'equipmentDocuments', maxCount: 10 }
 ]);
 
 module.exports = { uploadFields };

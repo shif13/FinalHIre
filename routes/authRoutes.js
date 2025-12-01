@@ -15,7 +15,6 @@ const {
 // POST /api/auth/login - User login
 router.post('/login', login);
 
-
 router.post('/login-with-role', loginWithRole);
 
 // POST /api/auth/forgot-password - Request password reset

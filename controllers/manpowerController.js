@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { createUser, checkEmailRoleExists } = require('./userController');
 const emailService = require('../services/emailService');
-const { clearCategoryCache } = require('./manpowerSearchController'); // ✅ ADD THIS LINE
+const { clearCategoryCache } = require('./manpowerSearchController');
 
 // Create manpower_profiles table if it doesn't exist
 const createManpowerTable = async () => {
@@ -18,6 +18,7 @@ const createManpowerTable = async () => {
       email VARCHAR(255) NOT NULL,
       mobile_number VARCHAR(20) NOT NULL,
       whatsapp_number VARCHAR(20),
+      national_id VARCHAR(30),
       location VARCHAR(255) NOT NULL,
       job_title VARCHAR(255) NOT NULL,
       availability_status ENUM('available', 'busy') NOT NULL DEFAULT 'available',
@@ -48,10 +49,40 @@ const createManpowerTable = async () => {
   }
 };
 
+// Update manpower_profiles table to add national_id column (for existing tables)
+const addNationalIdColumn = async () => {
+  try {
+    // Check if national_id column exists
+    const [columns] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'manpower_profiles' 
+      AND COLUMN_NAME = 'national_id'
+    `);
+
+    if (columns.length === 0) {
+      console.log('🔄 Adding national_id column to manpower_profiles...');
+      
+      await db.query(`
+        ALTER TABLE manpower_profiles 
+        ADD COLUMN national_id VARCHAR(30) NULL AFTER whatsapp_number
+      `);
+      
+      console.log('✅ national_id column added successfully');
+    } else {
+      console.log('✅ national_id column already exists');
+    }
+  } catch (error) {
+    console.error('❌ Error adding national_id column:', error);
+  }
+};
+
 // Initialize table on module load
 (async () => {
   try {
     await createManpowerTable();
+    await addNationalIdColumn();
   } catch (error) {
     console.error('Failed to initialize manpower profiles table:', error);
   }
@@ -166,11 +197,12 @@ const createManpowerAccount = async (req, res) => {
       rate,
       mobileNumber,
       whatsappNumber,
-      profileDescription
+      profileDescription,
+      nationalId
     } = req.body;
 
     // Validation
-    if (!firstName || !lastName || !email || !password || !jobTitle || !availabilityStatus || !mobileNumber || !location) {
+    if (!firstName || !lastName || !nationalId || !email || !password || !jobTitle || !availabilityStatus || !mobileNumber || !location) {
       cleanupUploadedFiles(req);
       return res.status(400).json({
         success: false,
@@ -185,6 +217,24 @@ const createManpowerAccount = async (req, res) => {
     const trimmedLocation = location.trim();
     const trimmedJobTitle = jobTitle.trim();
     const trimmedMobile = mobileNumber.trim();
+    const trimmedNationalId = nationalId ? nationalId.trim() : '';
+
+    // National ID validation (required)
+    if (!trimmedNationalId) {
+      cleanupUploadedFiles(req);
+      return res.status(400).json({
+        success: false,
+        message: 'National ID is required'
+      });
+    }
+
+    if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
+      cleanupUploadedFiles(req);
+      return res.status(400).json({
+        success: false,
+        message: 'National ID must be between 5 and 30 characters'
+      });
+    }
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -298,10 +348,10 @@ const createManpowerAccount = async (req, res) => {
     try {
       await db.query(
         `INSERT INTO manpower_profiles 
-        (user_id, first_name, last_name, email, mobile_number, whatsapp_number, location, 
+        (user_id, first_name, last_name, email, mobile_number, whatsapp_number, national_id, location, 
          job_title, availability_status, available_from, rate, profile_description, 
          profile_photo, cv_path, certificates) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           userId,
           trimmedFirstName,
@@ -309,6 +359,7 @@ const createManpowerAccount = async (req, res) => {
           trimmedEmail,
           trimmedMobile,
           finalWhatsappNumber,
+          trimmedNationalId,
           trimmedLocation,
           trimmedJobTitle,
           availabilityStatus,
@@ -344,7 +395,7 @@ const createManpowerAccount = async (req, res) => {
 
     console.log(`✅ Manpower account created: ${trimmedEmail} (User ID: ${userId})`);
 
-    // ✅ CLEAR CACHE - New job title added to database
+    // Clear cache - New job title added to database
     clearCategoryCache();
     console.log('🔄 Category cache cleared for new profile');
 
@@ -431,7 +482,8 @@ const getProfile = async (req, res) => {
       has_photo: !!profile.profile_photo,
       has_cv: !!profile.cv_path,
       cv_filename: profile.cv_path,
-      certificates_count: parsedCertificates.length
+      certificates_count: parsedCertificates.length,
+      has_national_id: !!profile.national_id
     });
 
     res.status(200).json({
@@ -469,6 +521,7 @@ const updateProfile = async (req, res) => {
       mobileNumber,
       whatsappNumber,
       profileDescription,
+      nationalId,
       removePhoto,
       removeCv,
       deleteCertificates
@@ -592,7 +645,7 @@ const updateProfile = async (req, res) => {
       `UPDATE manpower_profiles 
        SET first_name = ?, last_name = ?, job_title = ?, availability_status = ?,
            available_from = ?, location = ?, rate = ?, mobile_number = ?,
-           whatsapp_number = ?, profile_description = ?, profile_photo = ?,
+           whatsapp_number = ?, national_id = ?, profile_description = ?, profile_photo = ?,
            cv_path = ?, certificates = ?, updated_at = NOW()
        WHERE user_id = ?`,
       [
@@ -605,6 +658,7 @@ const updateProfile = async (req, res) => {
         rate || current.rate,
         mobileNumber || current.mobile_number,
         whatsappNumber || current.whatsapp_number,
+        nationalId !== undefined ? nationalId : current.national_id,
         profileDescription !== undefined ? profileDescription : current.profile_description,
         profilePhotoUrl,
         cvPath,
@@ -631,7 +685,7 @@ const updateProfile = async (req, res) => {
 
     console.log('✅ Profile updated successfully');
 
-    // ✅ CLEAR CACHE - Only if job title changed
+    // Clear cache - Only if job title changed
     if (jobTitle && jobTitle !== current.job_title) {
       clearCategoryCache();
       console.log('🔄 Category cache cleared due to job title change');

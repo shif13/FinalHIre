@@ -18,6 +18,7 @@ const createConsultantProfilesTable = async () => {
       email VARCHAR(255) NOT NULL,
       mobile_number VARCHAR(20) NOT NULL,
       whatsapp_number VARCHAR(20),
+      national_id VARCHAR(30),
       location VARCHAR(255) NOT NULL,
       company_name VARCHAR(255),
       profile_photo VARCHAR(500),
@@ -37,6 +38,34 @@ const createConsultantProfilesTable = async () => {
   } catch (error) {
     console.error('❌ Error creating consultant profiles table:', error);
     throw error;
+  }
+};
+
+// Add national_id column if it doesn't exist (for existing tables)
+const addNationalIdColumnToConsultant = async () => {
+  try {
+    const [columns] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'consultant_profiles' 
+      AND COLUMN_NAME = 'national_id'
+    `);
+
+    if (columns.length === 0) {
+      console.log('🔄 Adding national_id column to consultant_profiles...');
+      
+      await db.query(`
+        ALTER TABLE consultant_profiles 
+        ADD COLUMN national_id VARCHAR(30) NULL AFTER whatsapp_number
+      `);
+      
+      console.log('✅ national_id column added successfully');
+    } else {
+      console.log('✅ national_id column already exists');
+    }
+  } catch (error) {
+    console.error('❌ Error adding national_id column:', error);
   }
 };
 
@@ -80,6 +109,7 @@ const updateUsersTableForConsultant = async () => {
 (async () => {
   try {
     await createConsultantProfilesTable();
+    await addNationalIdColumnToConsultant();
     await updateUsersTableForConsultant();
   } catch (error) {
     console.error('Failed to initialize consultant tables:', error);
@@ -157,18 +187,34 @@ const createConsultantAccount = async (req, res) => {
       location,
       mobileNumber,
       whatsappNumber,
+      nationalId,
       companyName
     } = req.body;
 
-    if (!name || !email || !password || !mobileNumber || !location) {
+    if (!name || !email || !password || !nationalId || !mobileNumber || !location) {
       return res.status(400).json({
         success: false,
-        message: 'Please fill in all required fields (name, email, password, mobile, location)'
+        message: 'Please fill in all required fields (name, email, password, national ID, mobile, location)'
+      });
+    }
+
+    // Trim whitespace
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedNationalId = nationalId.trim();
+    const trimmedMobile = mobileNumber.trim();
+    const trimmedLocation = location.trim();
+
+    // National ID validation
+    if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
+      return res.status(400).json({
+        success: false,
+        message: 'National ID must be between 5 and 30 characters'
       });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(trimmedEmail)) {
       return res.status(400).json({
         success: false,
         message: 'Please enter a valid email address'
@@ -182,7 +228,14 @@ const createConsultantAccount = async (req, res) => {
       });
     }
 
-    const emailRoleExists = await checkEmailRoleExists(email, 'consultant');
+    if (trimmedMobile.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid mobile number (at least 10 digits)'
+      });
+    }
+
+    const emailRoleExists = await checkEmailRoleExists(trimmedEmail, 'consultant');
     if (emailRoleExists) {
       return res.status(400).json({
         success: false,
@@ -203,20 +256,20 @@ const createConsultantAccount = async (req, res) => {
       }
     }
 
-    const finalWhatsappNumber = whatsappNumber || mobileNumber;
-    const nameParts = name.trim().split(' ');
-    const firstName = nameParts[0] || name;
+    const finalWhatsappNumber = whatsappNumber || trimmedMobile;
+    const nameParts = trimmedName.split(' ');
+    const firstName = nameParts[0] || trimmedName;
     const lastName = nameParts.slice(1).join(' ') || '';
 
     console.log('👤 Creating user in users table...');
     const userResult = await createUser({
       first_name: firstName,
       last_name: lastName,
-      email,
+      email: trimmedEmail,
       password: hashedPassword,
-      mobile_number: mobileNumber,
+      mobile_number: trimmedMobile,
       whatsapp_number: finalWhatsappNumber,
-      location,
+      location: trimmedLocation,
       user_type: 'consultant'
     });
 
@@ -226,21 +279,22 @@ const createConsultantAccount = async (req, res) => {
     console.log('🏢 Creating consultant profile...');
     await db.query(
       `INSERT INTO consultant_profiles 
-      (user_id, name, email, mobile_number, whatsapp_number, location, company_name, profile_photo) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (user_id, name, email, mobile_number, whatsapp_number, national_id, location, company_name, profile_photo) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
-        name,
-        email,
-        mobileNumber,
+        trimmedName,
+        trimmedEmail,
+        trimmedMobile,
         finalWhatsappNumber,
-        location,
+        trimmedNationalId,
+        trimmedLocation,
         companyName || null,
         profilePhotoUrl
       ]
     );
 
-    console.log(`✅ Consultant account created: ${email} (User ID: ${userId})`);
+    console.log(`✅ Consultant account created: ${trimmedEmail} (User ID: ${userId})`);
 
     try {
       const verificationToken = crypto.randomBytes(32).toString('hex');
@@ -265,19 +319,19 @@ const createConsultantAccount = async (req, res) => {
 
       Promise.all([
         emailService.sendWelcomeEmail({
-          email,
+          email: trimmedEmail,
           firstName,
           lastName,
           userType: 'consultant'
         }),
         emailService.sendVerificationEmail({
-          email,
+          email: trimmedEmail,
           firstName,
           lastName
         }, verificationToken) 
       ])
       .then(() => {
-        console.log('✅ Both emails sent successfully to:', email);
+        console.log('✅ Both emails sent successfully to:', trimmedEmail);
       })
       .catch(emailError => {
         console.error('⚠️ Email sending failed (non-critical):', emailError.message);
@@ -390,6 +444,7 @@ const updateConsultantProfile = async (req, res) => {
       location,
       mobileNumber,
       whatsappNumber,
+      nationalId,
       removePhoto
     } = req.body;
 
@@ -434,7 +489,7 @@ const updateConsultantProfile = async (req, res) => {
     await db.query(
       `UPDATE consultant_profiles 
        SET name = ?, company_name = ?, location = ?, mobile_number = ?,
-           whatsapp_number = ?, profile_photo = ?, updated_at = NOW()
+           whatsapp_number = ?, national_id = ?, profile_photo = ?, updated_at = NOW()
        WHERE user_id = ?`,
       [
         name || current.name,
@@ -442,6 +497,7 @@ const updateConsultantProfile = async (req, res) => {
         location || current.location,
         mobileNumber || current.mobile_number,
         whatsappNumber || current.whatsapp_number,
+        nationalId !== undefined ? nationalId : current.national_id,
         profilePhotoUrl,
         userId
       ]
@@ -600,7 +656,7 @@ const addFreelancerProfile = async (req, res) => {
 };
 
 // ==========================================
-// UPDATE FREELANCER PROFILE (✅ FIXED - CERTIFICATE PRESERVATION)
+// UPDATE FREELANCER PROFILE
 // ==========================================
 const updateFreelancerProfile = async (req, res) => {
   const userId = req.user.userId;
@@ -622,7 +678,7 @@ const updateFreelancerProfile = async (req, res) => {
       removePhoto,
       removeCv,
       deleteCertificates,
-      keepExistingCertificates  // ✅ FLAG FROM FRONTEND
+      keepExistingCertificates
     } = req.body;
 
     const [freelancer] = await db.query(
@@ -683,7 +739,7 @@ const updateFreelancerProfile = async (req, res) => {
       console.log('✅ New CV saved:', cvPath);
     }
 
-    // ✅ CRITICAL FIX: Certificate preservation logic
+    // Handle certificates
     let certificatePaths = [];
     
     // Parse existing certificates
@@ -731,8 +787,6 @@ const updateFreelancerProfile = async (req, res) => {
       console.log('✅ Total certificates after addition:', certificatePaths.length);
     }
 
-    // ✅ CRITICAL FIX: Only update certificates field if explicitly modifying them
-    // This prevents accidental deletion when just updating other fields
     const shouldUpdateCertificates = deleteCertificates || 
                                      (req.files && req.files.certificates && req.files.certificates.length > 0);
 
@@ -764,7 +818,6 @@ const updateFreelancerProfile = async (req, res) => {
       cvPath
     ];
 
-    // ✅ Only update certificates if we're explicitly modifying them
     if (shouldUpdateCertificates) {
       updateFields.push('certificates = ?');
       updateValues.push(JSON.stringify(certificatePaths));

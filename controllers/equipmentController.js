@@ -103,11 +103,40 @@ const createEquipmentTable = async () => {
   }
 };
 
+// Add national_id column to existing tables
+const addNationalIdColumnToEquipment = async () => {
+  try {
+    const [columns] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'equipment_owner_profiles' 
+      AND COLUMN_NAME = 'national_id'
+    `);
+
+    if (columns.length === 0) {
+      console.log('🔄 Adding national_id column to equipment_owner_profiles...');
+      
+      await db.query(`
+        ALTER TABLE equipment_owner_profiles 
+        ADD COLUMN national_id VARCHAR(30) NULL AFTER whatsapp_number
+      `);
+      
+      console.log('✅ national_id column added successfully');
+    } else {
+      console.log('✅ national_id column already exists');
+    }
+  } catch (error) {
+    console.error('❌ Error adding national_id column:', error);
+  }
+};
+
 // Initialize both tables on module load
 (async () => {
   try {
     await createEquipmentOwnerProfilesTable();
     await createEquipmentTable();
+    await addNationalIdColumnToEquipment(); 
   } catch (error) {
     console.error('Failed to initialize equipment tables:', error);
   }
@@ -189,16 +218,26 @@ const createEquipmentOwnerAccount = async (req, res) => {
       companyName,
       location,
       mobileNumber,
-      whatsappNumber
+      whatsappNumber,
+      nationalId
     } = req.body;
 
-    // Validation
-    if (!name || !email || !password || !mobileNumber || !location) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please fill in all required fields'
-      });
-    }
+   // Validation
+if (!name || !email || !password || !nationalId || !mobileNumber || !location) {
+  return res.status(400).json({
+    success: false,
+    message: 'Please fill in all required fields (name, email, password, national ID, mobile, location)'
+  });
+}
+
+// National ID validation
+const trimmedNationalId = nationalId.trim();
+if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
+  return res.status(400).json({
+    success: false,
+    message: 'National ID must be between 5 and 30 characters'
+  });
+}
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -276,6 +315,7 @@ const createEquipmentOwnerAccount = async (req, res) => {
         email,
         mobileNumber,
         finalWhatsappNumber,
+        trimmedNationalId,
         location,
         companyName || null,
         profilePhotoUrl
@@ -419,6 +459,7 @@ const updateEquipmentOwnerProfile = async (req, res) => {
       location,
       mobileNumber,
       whatsappNumber,
+      nationalId,
       removePhoto
     } = req.body;
 
@@ -475,6 +516,7 @@ const updateEquipmentOwnerProfile = async (req, res) => {
         location || current.location,
         mobileNumber || current.mobile_number,
         whatsappNumber || current.whatsapp_number,
+        nationalId !== undefined ? nationalId : current.national_id, 
         profilePhotoUrl,
         userId
       ]

@@ -579,7 +579,7 @@ const sendInquiryConfirmationEmail = async (inquirerData, targetData, type = 'ma
 // 7. EMAIL VERIFICATION
 // ==========================================
 const sendVerificationEmail = async (user, token) => {
-  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${token}`;
+const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${token}`;
 
   const content = `
     <h2>Verify Your Email Address</h2>

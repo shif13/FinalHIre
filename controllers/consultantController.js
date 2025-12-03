@@ -554,6 +554,7 @@ const addFreelancerProfile = async (req, res) => {
     const {
       firstName,
       lastName,
+      nationalId,
       jobTitle,
       availabilityStatus,
       availableFrom,
@@ -561,11 +562,21 @@ const addFreelancerProfile = async (req, res) => {
       profileDescription
     } = req.body;
 
-    if (!firstName || !lastName || !jobTitle) {
+    // ✅ Validation
+    if (!firstName || !lastName || !nationalId || !jobTitle) {
       console.log('❌ Validation failed: Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Please fill in first name, last name, and job title'
+        message: 'Please fill in first name, last name, national ID and job title'
+      });
+    }
+
+    // ✅ National ID validation
+    const trimmedNationalId = nationalId.trim();
+    if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
+      return res.status(400).json({
+        success: false,
+        message: 'National ID must be between 5 and 30 characters'
       });
     }
 
@@ -612,12 +623,14 @@ const addFreelancerProfile = async (req, res) => {
     }
 
     console.log('💾 Inserting freelancer profile into database...');
+    
+    // ✅✅✅ CORRECTED INSERT QUERY - national_id in correct position
     const [result] = await db.query(
       `INSERT INTO manpower_profiles 
-      (user_id, first_name, last_name, email, mobile_number, whatsapp_number, location, 
+      (user_id, first_name, last_name, email, mobile_number, whatsapp_number, national_id, location, 
        job_title, availability_status, available_from, rate, profile_description, 
        profile_photo, cv_path, certificates) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         firstName,
@@ -625,8 +638,9 @@ const addFreelancerProfile = async (req, res) => {
         consultantData.email,
         consultantData.mobile_number,
         consultantData.whatsapp_number,
-        consultantData.location,
-        jobTitle,
+        trimmedNationalId,        // ✅ national_id (position 7)
+        consultantData.location,   // ✅ location (position 8)
+        jobTitle,                  // ✅ job_title (position 9)
         availabilityStatus || 'available',
         availableFrom || null,
         rate || null,
@@ -670,6 +684,7 @@ const updateFreelancerProfile = async (req, res) => {
     const {
       firstName,
       lastName,
+      nationalId,
       jobTitle,
       availabilityStatus,
       availableFrom,
@@ -793,10 +808,11 @@ const updateFreelancerProfile = async (req, res) => {
     console.log('🔍 Should update certificates?', shouldUpdateCertificates);
     console.log('🔍 Keep existing flag:', keepExistingCertificates);
 
-    // Build update query conditionally
+    // ✅✅✅ Build update query conditionally - national_id included
     const updateFields = [
       'first_name = ?',
       'last_name = ?',
+      'national_id = ?',  // ✅ Added national_id
       'job_title = ?',
       'availability_status = ?',
       'available_from = ?',
@@ -809,6 +825,7 @@ const updateFreelancerProfile = async (req, res) => {
     const updateValues = [
       firstName || current.first_name,
       lastName || current.last_name,
+      nationalId !== undefined ? nationalId : current.national_id,  // ✅ Added national_id
       jobTitle || current.job_title,
       availabilityStatus || current.availability_status,
       availableFrom || current.available_from,
@@ -892,35 +909,33 @@ const deleteFreelancerProfile = async (req, res) => {
     } catch (e) {
       certificates = [];
     }
-    certificates.forEach(cert => deleteLocalFile(cert));
-
+    certificates.forEach(cert=>deleteLocalFile(cert));
     await db.query(
-      'DELETE FROM manpower_profiles WHERE id = ? AND user_id = ?',
-      [freelancerId, userId]
-    );
+  'DELETE FROM manpower_profiles WHERE id = ? AND user_id = ?',
+  [freelancerId, userId]
+);
 
-    console.log('✅ Freelancer profile deleted successfully');
+console.log('✅ Freelancer profile deleted successfully');
 
-    res.status(200).json({
-      success: true,
-      message: 'Freelancer profile deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('❌ Delete freelancer profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error deleting freelancer profile',
-      error: error.message
-    });
-  }
+res.status(200).json({
+  success: true,
+  message: 'Freelancer profile deleted successfully'
+});
+}
+catch (error) {
+console.error('❌ Delete freelancer profile error:', error);
+res.status(500).json({
+success: false,
+message: 'Error deleting freelancer profile',
+error: error.message
+});
+}
 };
-
 module.exports = {
-  createConsultantAccount,
-  getConsultantProfile,
-  updateConsultantProfile,
-  addFreelancerProfile,
-  updateFreelancerProfile,
-  deleteFreelancerProfile
+createConsultantAccount,
+getConsultantProfile,
+updateConsultantProfile,
+addFreelancerProfile,
+updateFreelancerProfile,
+deleteFreelancerProfile
 };

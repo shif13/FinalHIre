@@ -623,6 +623,52 @@ const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${token}`;
   }
 };
 
+// Add this function to services/emailService.js
+
+const sendVerificationOTPEmail = async (user, otp) => {
+  const content = `
+    <h2>Verify Your Email Address</h2>
+    <p>Hello <strong>${user.firstName} ${user.lastName}</strong>!</p>
+    <p>Thank you for registering with Find-Hire.Co. Please use the following One-Time Password (OTP) to verify your email address:</p>
+    
+    <div style="text-align: center; margin: 40px 0;">
+      <div style="display: inline-block; background: linear-gradient(135deg, #0d9488 0%, #06b6d4 100%); padding: 20px 40px; border-radius: 12px;">
+        <p style="margin: 0; color: white; font-size: 14px; font-weight: 500; letter-spacing: 1px;">YOUR VERIFICATION CODE</p>
+        <p style="margin: 10px 0 0 0; color: white; font-size: 48px; font-weight: bold; letter-spacing: 8px;">${otp}</p>
+      </div>
+    </div>
+
+    <div class="warning-box">
+      <p style="margin: 0;"><strong>⏰ This OTP will expire in 10 minutes.</strong></p>
+    </div>
+
+    <p><strong>Security Tips:</strong></p>
+    <ul style="color: #4b5563; margin: 12px 0; padding-left: 20px;">
+      <li>Never share this OTP with anyone</li>
+      <li>Our team will never ask for your OTP</li>
+      <li>If you didn't request this, please ignore this email</li>
+    </ul>
+
+    <p>Best regards,<br><strong>The Find-Hire Team</strong></p>
+  `;
+
+  const mailOptions = {
+    from: `"Find-Hire.Co" <${process.env.EMAIL_USER}>`,
+    to: user.email,
+    subject: `${otp} - Your Find-Hire.Co Verification Code`,
+    html: getEmailTemplate('Email Verification', content, 'This code expires in 10 minutes.')
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ OTP email sent to ${user.email}`);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ OTP email error:', error.message);
+    throw error;
+  }
+};
+
 // ==========================================
 // EXPORT ALL FUNCTIONS
 // ==========================================
@@ -633,6 +679,6 @@ module.exports = {
   sendManpowerInquiryEmail,
   sendEquipmentInquiryEmail,
   sendInquiryConfirmationEmail,
-  sendVerificationEmail,
+  sendVerificationOTPEmail,
   transporter 
 };

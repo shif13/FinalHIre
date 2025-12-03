@@ -4,14 +4,18 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const {
   sendVerificationEmail,
+  verifyOTP,
   verifyEmail,
   checkVerificationStatus
 } = require('../controllers/emailVerificationController');
 
-// POST /api/email-verification/send - Send/resend verification email (protected)
+// POST /api/email-verification/send - Send/resend OTP (protected)
 router.post('/send', authenticateToken, sendVerificationEmail);
 
-// GET /api/email-verification/verify/:token - Verify email with token (public)
+// POST /api/email-verification/verify-otp - Verify OTP (NEW - protected)
+router.post('/verify-otp', authenticateToken, verifyOTP);
+
+// GET /api/email-verification/verify/:token - Verify email with token (OLD - public)
 router.get('/verify/:token', verifyEmail);
 
 // GET /api/email-verification/status - Check verification status (protected)

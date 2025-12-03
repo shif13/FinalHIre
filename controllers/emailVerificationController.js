@@ -3,8 +3,13 @@ const db = require('../config/db');
 const crypto = require('crypto');
 const emailService = require('../services/emailService');
 
+// Generate 6-digit OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
 // ==========================================
-// SEND/RESEND VERIFICATION EMAIL
+// SEND/RESEND VERIFICATION OTP
 // ==========================================
 const sendVerificationEmail = async (req, res) => {
   try {
@@ -33,79 +38,206 @@ const sendVerificationEmail = async (req, res) => {
       });
     }
 
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
+    // Generate 6-digit OTP
+    const otp = generateOTP();
     
-    // Format date for MySQL: 'YYYY-MM-DD HH:MM:SS'
-    const tokenExpiry = new Date(Date.now() + 24 * 3600000)
+    // Hash OTP for storage (security)
+    const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
+    
+    // OTP expires in 10 minutes
+    const otpExpiry = new Date(Date.now() + 10 * 60000)
       .toISOString()
       .slice(0, 19)
       .replace('T', ' ');
 
-    console.log('📧 Generating verification token:', {
+    console.log('📧 Generated OTP:', {
       userId: user.id,
       email: user.email,
-      tokenPreview: verificationToken.substring(0, 10) + '...',
-      hashedPreview: hashedToken.substring(0, 10) + '...',
-      expiry: tokenExpiry
+      otpPreview: otp.substring(0, 3) + '***',
+      expiry: otpExpiry
     });
 
-    // Save token to database
+    // Save hashed OTP to database
     await db.query(
       `UPDATE users 
        SET verification_token = ?, verification_token_expiry = ?
        WHERE id = ?`,
-      [hashedToken, tokenExpiry, userId]
+      [hashedOTP, otpExpiry, userId]
     );
 
-    // Verify the token was saved
+    // Verify the OTP was saved
     const [check] = await db.query(
       'SELECT verification_token FROM users WHERE id = ?',
       [userId]
     );
-    console.log('✅ Token saved to DB:', check[0].verification_token?.substring(0, 10) + '...');
+    console.log('✅ OTP saved to DB:', check[0].verification_token?.substring(0, 10) + '...');
 
-    // Send verification email
-    await emailService.sendVerificationEmail(
+    // Send OTP email
+    await emailService.sendVerificationOTPEmail(
       {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name
       },
-      verificationToken // Send UNHASHED token in email
+      otp // Send plain OTP in email
     );
 
-    console.log(`✅ Verification email sent to: ${user.email}`);
+    console.log(`✅ OTP email sent to: ${user.email}`);
 
     res.status(200).json({
       success: true,
-      message: 'Verification email sent successfully. Please check your inbox.'
+      message: 'Verification OTP sent to your email. Valid for 10 minutes.'
     });
 
   } catch (error) {
-    console.error('❌ Send verification email error:', error);
+    console.error('❌ Send OTP error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error sending verification email',
+      message: 'Error sending verification OTP',
       error: error.message
     });
   }
 };
 
 // ==========================================
-// VERIFY EMAIL TOKEN (NO AUTH REQUIRED)
+// VERIFY OTP (NEW ENDPOINT)
+// ==========================================
+const verifyOTP = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { otp } = req.body;
+
+    console.log('🔍 OTP Verification attempt:', { userId, otpProvided: !!otp });
+
+    if (!otp || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP format. Please enter 6 digits.'
+      });
+    }
+
+    // Get user with stored OTP
+    const [users] = await db.query(
+      `SELECT id, first_name, last_name, email, email_verified, 
+              verification_token, verification_token_expiry
+       FROM users 
+       WHERE id = ?`,
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const user = users[0];
+
+    // Check if already verified
+    if (user.email_verified) {
+      return res.status(200).json({
+        success: true,
+        message: 'Email already verified',
+        alreadyVerified: true,
+        user: {
+          firstName: user.first_name,
+          lastName: user.last_name,
+          email: user.email
+        }
+      });
+    }
+
+    // Check if OTP exists
+    if (!user.verification_token) {
+      return res.status(400).json({
+        success: false,
+        message: 'No OTP found. Please request a new one.'
+      });
+    }
+
+    // Check if OTP expired
+    const now = new Date();
+    const expiry = new Date(user.verification_token_expiry);
+    
+    console.log('⏰ OTP expiry check:', {
+      currentTime: now.toISOString(),
+      expiryTime: expiry.toISOString(),
+      isExpired: now > expiry,
+      timeRemaining: expiry - now > 0 ? `${Math.floor((expiry - now) / 1000 / 60)} minutes` : 'expired'
+    });
+
+    if (now > expiry) {
+      console.log('❌ OTP has expired');
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired. Please request a new one.',
+        expired: true
+      });
+    }
+
+    // Hash provided OTP and compare
+    const hashedProvidedOTP = crypto.createHash('sha256').update(otp).digest('hex');
+    
+    if (hashedProvidedOTP !== user.verification_token) {
+      console.log('❌ OTP mismatch for user:', userId);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP. Please check and try again.'
+      });
+    }
+
+    // OTP is valid - mark email as verified
+    console.log('🔄 Updating user verification status...');
+    const [updateResult] = await db.query(
+      `UPDATE users 
+       SET email_verified = true, 
+           verification_token = NULL, 
+           verification_token_expiry = NULL,
+           updated_at = NOW()
+       WHERE id = ?`,
+      [user.id]
+    );
+
+    console.log('✅ Update result:', {
+      affectedRows: updateResult.affectedRows,
+      changedRows: updateResult.changedRows
+    });
+
+    console.log(`✅ Email verified successfully for user: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully!',
+      user: {
+        firstName: user.first_name,
+        lastName: user.last_name,
+        email: user.email
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ OTP verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error verifying OTP. Please try again.',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// VERIFY EMAIL TOKEN (OLD METHOD - KEEP FOR BACKWARD COMPATIBILITY)
 // ==========================================
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
 
-    console.log('\n🔍 ===== EMAIL VERIFICATION ATTEMPT =====');
+    console.log('\n🔍 ===== EMAIL VERIFICATION ATTEMPT (TOKEN) =====');
     console.log('Token received:', {
       exists: !!token,
       length: token?.length,
-      preview: token?.substring(0, 10) + '...',
-      full: token // Log full token for debugging (remove in production)
+      preview: token?.substring(0, 10) + '...'
     });
 
     if (!token) {
@@ -121,8 +253,7 @@ const verifyEmail = async (req, res) => {
     
     console.log('🔐 Token hashing:', {
       originalPreview: token.substring(0, 10) + '...',
-      hashedPreview: hashedToken.substring(0, 10) + '...',
-      hashedFull: hashedToken // Log full hash for debugging (remove in production)
+      hashedPreview: hashedToken.substring(0, 10) + '...'
     });
 
     // Find user with this token
@@ -135,36 +266,13 @@ const verifyEmail = async (req, res) => {
     );
 
     console.log('📊 Database query result:', {
-      usersFound: users.length,
-      query: 'SELECT ... WHERE verification_token = ?'
+      usersFound: users.length
     });
 
-    if (users.length > 0) {
-      console.log('✅ User found:', {
-        id: users[0].id,
-        email: users[0].email,
-        emailVerified: users[0].email_verified,
-        tokenInDb: users[0].verification_token?.substring(0, 10) + '...',
-        tokenExpiry: users[0].verification_token_expiry
-      });
-    } else {
+    if (users.length === 0) {
       console.log('❌ No user found with this token');
       
-      // Additional debugging - check if any tokens exist
-      const [allTokens] = await db.query(
-        'SELECT id, email, verification_token FROM users WHERE verification_token IS NOT NULL LIMIT 5'
-      );
-      console.log('📋 Sample of tokens in database:', 
-        allTokens.map(u => ({
-          id: u.id,
-          email: u.email,
-          tokenPreview: u.verification_token?.substring(0, 10) + '...'
-        }))
-      );
-    }
-
-    if (users.length === 0) {
-      // Check if there's a recently verified user (token was cleared after verification)
+      // Check if there's a recently verified user
       const [recentlyVerified] = await db.query(
         `SELECT id, first_name, last_name, email, email_verified 
          FROM users 
@@ -175,7 +283,7 @@ const verifyEmail = async (req, res) => {
       );
       
       if (recentlyVerified.length > 0) {
-        console.log('✅ Found recently verified user, likely double request');
+        console.log('✅ Found recently verified user');
         return res.status(200).json({
           success: true,
           message: 'Email already verified',
@@ -203,8 +311,7 @@ const verifyEmail = async (req, res) => {
     console.log('⏰ Token expiry check:', {
       currentTime: now.toISOString(),
       expiryTime: expiry.toISOString(),
-      isExpired: now > expiry,
-      timeRemaining: expiry - now > 0 ? `${Math.floor((expiry - now) / 1000 / 60)} minutes` : 'expired'
+      isExpired: now > expiry
     });
 
     if (now > expiry) {
@@ -233,7 +340,7 @@ const verifyEmail = async (req, res) => {
 
     // Mark email as verified
     console.log('🔄 Updating user verification status...');
-    const [updateResult] = await db.query(
+    await db.query(
       `UPDATE users 
        SET email_verified = true, 
            verification_token = NULL, 
@@ -243,20 +350,7 @@ const verifyEmail = async (req, res) => {
       [user.id]
     );
 
-    console.log('✅ Update result:', {
-      affectedRows: updateResult.affectedRows,
-      changedRows: updateResult.changedRows
-    });
-
-    // Verify the update
-    const [verifyUpdate] = await db.query(
-      'SELECT email_verified FROM users WHERE id = ?',
-      [user.id]
-    );
-    console.log('✅ Verification status after update:', verifyUpdate[0].email_verified);
-
     console.log(`✅ Email verified successfully for user: ${user.email}`);
-    console.log('===== VERIFICATION COMPLETE =====\n');
 
     res.status(200).json({
       success: true,
@@ -270,7 +364,6 @@ const verifyEmail = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Email verification error:', error);
-    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error verifying email. Please try again or contact support.',
@@ -284,7 +377,7 @@ const verifyEmail = async (req, res) => {
 // ==========================================
 const checkVerificationStatus = async (req, res) => {
   try {
-    const userId = req.user.userId; // From auth middleware
+    const userId = req.user.userId;
 
     const [users] = await db.query(
       'SELECT email_verified FROM users WHERE id = ?',
@@ -315,6 +408,7 @@ const checkVerificationStatus = async (req, res) => {
 
 module.exports = {
   sendVerificationEmail,
-  verifyEmail,
+  verifyOTP,
+  verifyEmail, 
   checkVerificationStatus
 };

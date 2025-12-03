@@ -44,33 +44,36 @@ const sendVerificationEmail = async (req, res) => {
     // Hash OTP for storage (security)
     const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
     
-    // OTP expires in 10 minutes
-    const otpExpiry = new Date(Date.now() + 10 * 60000)
-      .toISOString()
-      .slice(0, 19)
-      .replace('T', ' ');
+    // ✅ FIXED: Timezone-safe expiry calculation
+    // Calculate expiry as MySQL TIMESTAMP (15 minutes from now)
+    const expiryDate = new Date(Date.now() + 15 * 60000);
 
     console.log('📧 Generated OTP:', {
       userId: user.id,
       email: user.email,
       otpPreview: otp.substring(0, 3) + '***',
-      expiry: otpExpiry
+      expiry: expiryDate.toISOString()
     });
 
-    // Save hashed OTP to database
+    // ✅ Save hashed OTP to database with proper TIMESTAMP
     await db.query(
       `UPDATE users 
-       SET verification_token = ?, verification_token_expiry = ?
+       SET verification_token = ?, 
+           verification_token_expiry = FROM_UNIXTIME(?)
        WHERE id = ?`,
-      [hashedOTP, otpExpiry, userId]
+      [hashedOTP, Math.floor(expiryDate.getTime() / 1000), userId]
     );
 
     // Verify the OTP was saved
     const [check] = await db.query(
-      'SELECT verification_token FROM users WHERE id = ?',
+      'SELECT verification_token, UNIX_TIMESTAMP(verification_token_expiry) as expiry_unix FROM users WHERE id = ?',
       [userId]
     );
-    console.log('✅ OTP saved to DB:', check[0].verification_token?.substring(0, 10) + '...');
+    console.log('✅ OTP saved to DB:', {
+      tokenPreview: check[0].verification_token?.substring(0, 10) + '...',
+      expiryUnix: check[0].expiry_unix,
+      expiryDate: new Date(check[0].expiry_unix * 1000).toISOString()
+    });
 
     // Send OTP email
     await emailService.sendVerificationOTPEmail(
@@ -86,7 +89,7 @@ const sendVerificationEmail = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Verification OTP sent to your email. Valid for 10 minutes.'
+      message: 'Verification OTP sent to your email. Valid for 15 minutes.'
     });
 
   } catch (error) {
@@ -100,7 +103,7 @@ const sendVerificationEmail = async (req, res) => {
 };
 
 // ==========================================
-// VERIFY OTP (NEW ENDPOINT)
+// VERIFY OTP
 // ==========================================
 const verifyOTP = async (req, res) => {
   try {
@@ -119,7 +122,8 @@ const verifyOTP = async (req, res) => {
     // Get user with stored OTP
     const [users] = await db.query(
       `SELECT id, first_name, last_name, email, email_verified, 
-              verification_token, verification_token_expiry
+              verification_token, 
+              UNIX_TIMESTAMP(verification_token_expiry) as expiry_unix
        FROM users 
        WHERE id = ?`,
       [userId]
@@ -156,18 +160,20 @@ const verifyOTP = async (req, res) => {
       });
     }
 
-    // Check if OTP expired
-    const now = new Date();
-    const expiry = new Date(user.verification_token_expiry);
+    // ✅ FIXED: Timezone-safe expiry check using Unix timestamps
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const expiryUnix = user.expiry_unix;
     
     console.log('⏰ OTP expiry check:', {
-      currentTime: now.toISOString(),
-      expiryTime: expiry.toISOString(),
-      isExpired: now > expiry,
-      timeRemaining: expiry - now > 0 ? `${Math.floor((expiry - now) / 1000 / 60)} minutes` : 'expired'
+      currentTimeUnix: nowUnix,
+      currentTimeISO: new Date(nowUnix * 1000).toISOString(),
+      expiryUnix: expiryUnix,
+      expiryISO: new Date(expiryUnix * 1000).toISOString(),
+      isExpired: nowUnix > expiryUnix,
+      timeRemaining: expiryUnix - nowUnix > 0 ? `${Math.floor((expiryUnix - nowUnix) / 60)} minutes` : 'expired'
     });
 
-    if (now > expiry) {
+    if (nowUnix > expiryUnix) {
       console.log('❌ OTP has expired');
       return res.status(400).json({
         success: false,
@@ -179,6 +185,12 @@ const verifyOTP = async (req, res) => {
     // Hash provided OTP and compare
     const hashedProvidedOTP = crypto.createHash('sha256').update(otp).digest('hex');
     
+    console.log('🔐 Comparing OTPs:', {
+      providedHashPreview: hashedProvidedOTP.substring(0, 10) + '...',
+      storedHashPreview: user.verification_token.substring(0, 10) + '...',
+      match: hashedProvidedOTP === user.verification_token
+    });
+    
     if (hashedProvidedOTP !== user.verification_token) {
       console.log('❌ OTP mismatch for user:', userId);
       return res.status(400).json({
@@ -188,7 +200,7 @@ const verifyOTP = async (req, res) => {
     }
 
     // OTP is valid - mark email as verified
-    console.log('🔄 Updating user verification status...');
+    console.log('📝 Updating user verification status...');
     const [updateResult] = await db.query(
       `UPDATE users 
        SET email_verified = true, 
@@ -259,7 +271,8 @@ const verifyEmail = async (req, res) => {
     // Find user with this token
     const [users] = await db.query(
       `SELECT id, first_name, last_name, email, email_verified, 
-              verification_token, verification_token_expiry
+              verification_token, 
+              UNIX_TIMESTAMP(verification_token_expiry) as expiry_unix
        FROM users 
        WHERE verification_token = ?`,
       [hashedToken]
@@ -304,17 +317,19 @@ const verifyEmail = async (req, res) => {
 
     const user = users[0];
 
-    // Check if token has expired
-    const now = new Date();
-    const expiry = new Date(user.verification_token_expiry);
+    // ✅ FIXED: Timezone-safe expiry check
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const expiryUnix = user.expiry_unix;
     
     console.log('⏰ Token expiry check:', {
-      currentTime: now.toISOString(),
-      expiryTime: expiry.toISOString(),
-      isExpired: now > expiry
+      currentTimeUnix: nowUnix,
+      currentTimeISO: new Date(nowUnix * 1000).toISOString(),
+      expiryUnix: expiryUnix,
+      expiryISO: new Date(expiryUnix * 1000).toISOString(),
+      isExpired: nowUnix > expiryUnix
     });
 
-    if (now > expiry) {
+    if (nowUnix > expiryUnix) {
       console.log('❌ Token has expired');
       return res.status(400).json({
         success: false,
@@ -339,7 +354,7 @@ const verifyEmail = async (req, res) => {
     }
 
     // Mark email as verified
-    console.log('🔄 Updating user verification status...');
+    console.log('📝 Updating user verification status...');
     await db.query(
       `UPDATE users 
        SET email_verified = true, 

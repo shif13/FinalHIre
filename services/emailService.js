@@ -575,56 +575,6 @@ const sendInquiryConfirmationEmail = async (inquirerData, targetData, type = 'ma
   }
 };
 
-// ==========================================
-// 7. EMAIL VERIFICATION
-// ==========================================
-const sendVerificationEmail = async (user, token) => {
-const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${token}`;
-
-  const content = `
-    <h2>Verify Your Email Address</h2>
-    <p>Hello <strong>${user.firstName} ${user.lastName}</strong>!</p>
-    <p>Thank you for registering with Find-Hire.Co. Please verify your email address to complete your registration.</p>
-    
-    <div style="text-align: center;">
-      <a href="${verificationUrl}" class="button">
-        Verify Email Address
-      </a>
-    </div>
-
-    <p>Or copy and paste this link into your browser:</p>
-    <div class="info-box">
-      <p style="margin: 0; word-break: break-all; font-size: 13px;">${verificationUrl}</p>
-    </div>
-
-    <div class="warning-box">
-      <p style="margin: 0;"><strong>⏰ This link will expire in 24 hours.</strong></p>
-    </div>
-
-    <p>If you didn't create an account with Find-Hire.Co, please ignore this email.</p>
-
-    <p>Best regards,<br><strong>The Find-Hire Team</strong></p>
-  `;
-
-  const mailOptions = {
-    from: `"Find-Hire.Co" <${process.env.EMAIL_USER}>`,
-    to: user.email,
-    subject: '📧 Verify Your Email - Find-Hire.Co',
-    html: getEmailTemplate('Verify Your Email', content, 'This is an automated message.')
-  };
-
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Verification email sent to ${user.email}`);
-    return { success: true, messageId: info.messageId };
-  } catch (error) {
-    console.error('❌ Verification email error:', error.message);
-    throw error;
-  }
-};
-
-// Add this function to services/emailService.js
-
 const sendVerificationOTPEmail = async (user, otp) => {
   const content = `
     <h2>Verify Your Email Address</h2>

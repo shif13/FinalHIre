@@ -294,56 +294,33 @@ const createConsultantAccount = async (req, res) => {
       ]
     );
 
+    
     console.log(`✅ Consultant account created: ${trimmedEmail} (User ID: ${userId})`);
 
+    // ✅ ONLY send WELCOME email at signup (NO OTP/verification email)
     try {
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      const hashedToken = crypto.createHash('sha256').update(verificationToken).digest('hex');
-      
-      const tokenExpiry = new Date(Date.now() + 24 * 3600000)
-        .toISOString()
-        .slice(0, 19)
-        .replace('T', ' ');
+      console.log('📧 Sending welcome email in background...');
 
-      console.log('🔐 Generated verification token for user:', userId);
-
-      await db.query(
-        `UPDATE users 
-         SET verification_token = ?, verification_token_expiry = ?
-         WHERE id = ?`,
-        [hashedToken, tokenExpiry, userId]
-      );
-
-      console.log('✅ Verification token saved to database');
-      console.log('📧 Sending emails in background...');
-
-      Promise.all([
-        emailService.sendWelcomeEmail({
-          email: trimmedEmail,
-          firstName,
-          lastName,
-          userType: 'consultant'
-        }),
-        emailService.sendVerificationEmail({
-          email: trimmedEmail,
-          firstName,
-          lastName
-        }, verificationToken) 
-      ])
+      emailService.sendWelcomeEmail({
+        email: trimmedEmail,
+        firstName,
+        lastName,
+        userType: 'consultant'
+      })
       .then(() => {
-        console.log('✅ Both emails sent successfully to:', trimmedEmail);
+        console.log('✅ Welcome email sent successfully to:', trimmedEmail);
       })
       .catch(emailError => {
-        console.error('⚠️ Email sending failed (non-critical):', emailError.message);
+        console.error('⚠️ Welcome email sending failed (non-critical):', emailError.message);
       });
 
-    } catch (tokenError) {
-      console.error('⚠️ Verification token error:', tokenError.message);
+    } catch (emailError) {
+      console.error('⚠️ Email error (non-critical):', emailError.message);
     }
 
     res.status(201).json({
       success: true,
-      message: 'Consultant account created successfully! Please check your email to verify your account.',
+      message: 'Consultant account created successfully! Please verify your email from the dashboard.',
       userId: userId
     });
 

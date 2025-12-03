@@ -122,12 +122,57 @@ const updateUserTypeEnum = async () => {
   }
 };
 
+// Add verification token columns to existing users table
+const addVerificationTokenColumns = async () => {
+  try {
+    // Check if verification_token column exists
+    const [tokenColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'verification_token'
+    `);
+
+    if (tokenColumn.length === 0) {
+      console.log('🔄 Adding verification token columns to users table...');
+      
+      await db.query(`
+        ALTER TABLE users 
+        ADD COLUMN verification_token VARCHAR(255) NULL AFTER email_verified,
+        ADD COLUMN verification_token_expiry TIMESTAMP NULL AFTER verification_token
+      `);
+      
+      console.log('✅ Verification token columns added successfully');
+    } else {
+      console.log('✅ Verification token columns already exist');
+    }
+
+    // Also check if index exists and add it
+    const [tokenIndex] = await db.query(`
+      SHOW INDEXES FROM users WHERE Key_name = 'idx_verification_token'
+    `);
+
+    if (tokenIndex.length === 0) {
+      console.log('🔄 Adding index for verification_token...');
+      await db.query(`
+        ALTER TABLE users ADD INDEX idx_verification_token (verification_token)
+      `);
+      console.log('✅ Verification token index added');
+    }
+
+  } catch (error) {
+    console.error('❌ Error adding verification token columns:', error);
+  }
+};
+
 // Initialize table on module load
 (async () => {
   try {
     await createUsersTable();
-    await updateUsersTableSchema(); // NEW: Update schema for multi-role support
+    await updateUsersTableSchema(); 
     await updateUserTypeEnum();
+    await addVerificationTokenColumns(); 
   } catch (error) {
     console.error('Failed to initialize users table:', error);
   }

@@ -24,6 +24,7 @@ const equipmentSearchRoutes = require('./routes/equipmentSearchRoutes');
 const inquiryRoutes = require('./routes/inquiryRoutes');
 const consultantRoutes = require('./routes/consultantRoutes');
 const emailVerificationRoutes = require('./routes/emailVerificationRoutes');
+const universalSearchRoutes = require('./routes/universalSearchRoutes');
 
 // Initialize express app
 const app = express();
@@ -93,6 +94,7 @@ app.use('/api/equipment-search', equipmentSearchRoutes);
 app.use('/api/inquiry', inquiryRoutes);
 app.use('/api/consultant', consultantRoutes);
 app.use('/api/email-verification', emailVerificationRoutes);
+app.use('/api/universal-search', universalSearchRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -205,6 +205,7 @@ const deleteFromCloudinary = async (fileUrl) => {
 // ==========================================
 // CREATE EQUIPMENT OWNER ACCOUNT (SIGNUP)
 // ==========================================
+
 const createEquipmentOwnerAccount = async (req, res) => {
   console.log('🎯 createEquipmentOwnerAccount called');
   console.log('📦 Body:', req.body);
@@ -223,21 +224,21 @@ const createEquipmentOwnerAccount = async (req, res) => {
     } = req.body;
 
    // Validation
-if (!name || !email || !password || !nationalId || !mobileNumber || !location) {
-  return res.status(400).json({
-    success: false,
-    message: 'Please fill in all required fields (name, email, password, national ID, mobile, location)'
-  });
-}
+    if (!name || !email || !password || !nationalId || !mobileNumber || !location) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please fill in all required fields (name, email, password, national ID, mobile, location)'
+      });
+    }
 
-// National ID validation
-const trimmedNationalId = nationalId.trim();
-if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
-  return res.status(400).json({
-    success: false,
-    message: 'National ID must be between 5 and 30 characters'
-  });
-}
+    // National ID validation
+    const trimmedNationalId = nationalId.trim();
+    if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
+      return res.status(400).json({
+        success: false,
+        message: 'National ID must be between 5 and 30 characters'
+      });
+    }
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -303,20 +304,20 @@ if (trimmedNationalId.length < 5 || trimmedNationalId.length > 30) {
     const userId = userResult.userId;
     console.log('✅ User created with ID:', userId);
 
-    // Step 2: Create equipment owner profile
+    // Step 2: Create equipment owner profile - ✅ FIXED: Added national_id column
     console.log('🏢 Creating equipment owner profile...');
     await db.query(
       `INSERT INTO equipment_owner_profiles 
-      (user_id, name, email, mobile_number, whatsapp_number, location, company_name, profile_photo, equipment_count) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      (user_id, name, email, mobile_number, whatsapp_number, national_id, location, company_name, profile_photo, equipment_count) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [
         userId,
         name,
         email,
         mobileNumber,
         finalWhatsappNumber,
-        trimmedNationalId,
-        location,
+        trimmedNationalId,  
+        location,           
         companyName || null,
         profilePhotoUrl
       ]
@@ -491,12 +492,10 @@ const updateEquipmentOwnerProfile = async (req, res) => {
       try {
         console.log('📸 Uploading new profile photo...');
         
-        // Delete old photo from Cloudinary
         if (current.profile_photo) {
           await deleteFromCloudinary(current.profile_photo);
         }
         
-        // Upload new photo
         profilePhotoUrl = await uploadProfilePhoto(req.files.profilePhoto[0].path);
         console.log('✅ New profile photo uploaded:', profilePhotoUrl);
       } catch (error) {
@@ -504,35 +503,37 @@ const updateEquipmentOwnerProfile = async (req, res) => {
       }
     }
 
-    // Update equipment owner profile
+    // ✅ FIXED: Correct parameter order
     await db.query(
       `UPDATE equipment_owner_profiles 
        SET name = ?, company_name = ?, location = ?, mobile_number = ?,
-           whatsapp_number = ?, profile_photo = ?, updated_at = NOW()
+           whatsapp_number = ?, national_id = ?, profile_photo = ?, updated_at = NOW()
        WHERE user_id = ?`,
       [
-        name || current.name,
-        companyName || current.company_name,
-        location || current.location,
-        mobileNumber || current.mobile_number,
-        whatsappNumber || current.whatsapp_number,
-        nationalId !== undefined ? nationalId : current.national_id, 
-        profilePhotoUrl,
-        userId
+        name || current.name,                              // 1. name
+        companyName || current.company_name,               // 2. company_name
+        location || current.location,                      // 3. location
+        mobileNumber || current.mobile_number,             // 4. mobile_number
+        whatsappNumber || current.whatsapp_number,         // 5. whatsapp_number
+        nationalId !== undefined ? nationalId : current.national_id,  // 6. national_id
+        profilePhotoUrl,                                   // 7. profile_photo
+        userId                                             // 8. ✅ WHERE user_id (MUST BE LAST!)
       ]
     );
 
     // Also update users table
     await db.query(
       `UPDATE users 
-       SET first_name = ?, mobile_number = ?, whatsapp_number = ?, location = ?, updated_at = NOW()
+       SET first_name = ?, last_name = ?, mobile_number = ?, 
+           whatsapp_number = ?, location = ?, updated_at = NOW()
        WHERE id = ?`,
       [
         name || current.name,
+        '',  // last_name (equipment owners don't have separate last name)
         mobileNumber || current.mobile_number,
         whatsappNumber || current.whatsapp_number,
         location || current.location,
-        userId
+        userId  // ✅ WHERE id
       ]
     );
 
@@ -921,6 +922,7 @@ const getOwnerProfile = async (req, res) => {
         eop.email,
         eop.mobile_number,
         eop.whatsapp_number,
+        eop.national_id,
         eop.location,
         eop.company_name,
         eop.profile_photo,

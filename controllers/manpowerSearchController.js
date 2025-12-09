@@ -1,4 +1,4 @@
-// controllers/manpowerSearchController.js - OPTIMIZED WITH CACHING
+// controllers/manpowerSearchController.js - FIXED VERSION
 const db = require('../config/db');
 const { buildLocationQuery } = require('./locationSearchHelper');
 const NodeCache = require('node-cache');
@@ -151,6 +151,7 @@ const searchManpower = async (req, res) => {
   }
 };
 
+// ✅✅✅ FIXED: Removed u.email_verified from SELECT
 const getManpowerDetails = async (req, res) => {
   const { manpowerId } = req.params;
 
@@ -163,7 +164,6 @@ const getManpowerDetails = async (req, res) => {
       SELECT 
         mp.*,
         u.is_active,
-        u.email_verified,
         u.user_type,
         cp.name as consultant_name,
         cp.company_name as consultant_company,

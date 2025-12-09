@@ -441,12 +441,13 @@ const getProfile = async (req, res) => {
     console.log('🔍 Fetching profile for user ID:', userId);
 
     const [profiles] = await db.query(
-      `SELECT mp.*, u.is_active, u.email_verified, u.created_at as account_created
-       FROM manpower_profiles mp
-       JOIN users u ON mp.user_id = u.id
-       WHERE mp.user_id = ?`,
-      [userId]
-    );
+  `SELECT mp.*, u.is_active, u.created_at as account_created
+   FROM manpower_profiles mp
+   JOIN users u ON mp.user_id = u.id
+   WHERE mp.user_id = ?`,
+  [userId]
+);
+
 
     if (profiles.length === 0) {
       return res.status(404).json({

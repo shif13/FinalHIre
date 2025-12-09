@@ -34,10 +34,10 @@ const login = async (req, res) => {
   }
 
   try {
-    // Get ALL accounts with this email
+    // ✅ FIXED: Removed email_verified
     const [users] = await db.query(
       `SELECT id, first_name, last_name, email, password, mobile_number, whatsapp_number, 
-              location, user_type, is_active, email_verified
+              location, user_type, is_active
        FROM users WHERE email = ?`,
       [email]
     );
@@ -80,6 +80,7 @@ const login = async (req, res) => {
 
       const firstAccount = matchingAccounts[0];
 
+      // ✅ FIXED: Removed email_verified
       return res.status(200).json({
         success: true,
         message: 'Multiple accounts found',
@@ -92,8 +93,7 @@ const login = async (req, res) => {
           email: firstAccount.email,
           mobile_number: firstAccount.mobile_number,
           whatsapp_number: firstAccount.whatsapp_number,
-          location: firstAccount.location,
-          email_verified: firstAccount.email_verified
+          location: firstAccount.location
         }
       });
     }
@@ -106,6 +106,7 @@ const login = async (req, res) => {
     const token = generateToken(user.id, user.email, user.user_type);
     delete user.password;
 
+    // ✅ FIXED: Removed email_verified
     res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -118,8 +119,7 @@ const login = async (req, res) => {
         mobile_number: user.mobile_number,
         whatsapp_number: user.whatsapp_number,
         location: user.location,
-        user_type: user.user_type,
-        email_verified: user.email_verified
+        user_type: user.user_type
       }
     });
 
@@ -579,8 +579,6 @@ const logout = async (req, res) => {
   });
 };
 
-// Add this NEW function to controllers/loginController.js
-
 // Login WITH ROLE CHECK - NEW ENDPOINT
 const loginWithRole = async (req, res) => {
   const { email, password, requestedRole } = req.body;
@@ -593,10 +591,10 @@ const loginWithRole = async (req, res) => {
   }
 
   try {
-    // Get user account for the REQUESTED ROLE ONLY
+    // ✅ FIXED: Removed email_verified
     const [users] = await db.query(
       `SELECT id, first_name, last_name, email, password, mobile_number, whatsapp_number, 
-              location, user_type, is_active, email_verified
+              location, user_type, is_active
        FROM users 
        WHERE email = ? AND user_type = ?`,
       [email, requestedRole]
@@ -654,6 +652,7 @@ const loginWithRole = async (req, res) => {
     const token = generateToken(user.id, user.email, user.user_type);
     delete user.password;
 
+    // ✅ FIXED: Removed email_verified
     res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -666,8 +665,7 @@ const loginWithRole = async (req, res) => {
         mobile_number: user.mobile_number,
         whatsapp_number: user.whatsapp_number,
         location: user.location,
-        user_type: user.user_type,
-        email_verified: user.email_verified
+        user_type: user.user_type
       }
     });
 

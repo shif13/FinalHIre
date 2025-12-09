@@ -365,12 +365,12 @@ const getEquipmentOwnerProfile = async (req, res) => {
 
     // Get owner profile
     const [profiles] = await db.query(
-      `SELECT eop.*, u.is_active, u.email_verified, u.created_at as account_created
-       FROM equipment_owner_profiles eop
-       JOIN users u ON eop.user_id = u.id
-       WHERE eop.user_id = ?`,
-      [userId]
-    );
+  `SELECT eop.*, u.is_active, u.created_at as account_created
+   FROM equipment_owner_profiles eop
+   JOIN users u ON eop.user_id = u.id
+   WHERE eop.user_id = ?`,
+  [userId]
+);
 
     if (profiles.length === 0) {
       return res.status(404).json({

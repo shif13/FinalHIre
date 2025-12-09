@@ -174,6 +174,7 @@ const deleteLocalFile = (filename) => {
 // ==========================================
 // CREATE CONSULTANT ACCOUNT (SIGNUP)
 // ==========================================
+
 const createConsultantAccount = async (req, res) => {
   console.log('🎯 createConsultantAccount called');
   console.log('📦 Body:', req.body);
@@ -198,7 +199,6 @@ const createConsultantAccount = async (req, res) => {
       });
     }
 
-    // Trim whitespace
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedNationalId = nationalId.trim();
@@ -294,10 +294,8 @@ const createConsultantAccount = async (req, res) => {
       ]
     );
 
-    
     console.log(`✅ Consultant account created: ${trimmedEmail} (User ID: ${userId})`);
 
-    // ✅ ONLY send WELCOME email at signup (NO OTP/verification email)
     try {
       console.log('📧 Sending welcome email in background...');
 
@@ -320,7 +318,7 @@ const createConsultantAccount = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Consultant account created successfully! Please verify your email from the dashboard.',
+      message: 'Consultant account created successfully! You can now log in.',
       userId: userId
     });
 
@@ -343,8 +341,9 @@ const getConsultantProfile = async (req, res) => {
   try {
     console.log('🔍 Fetching consultant profile for user:', userId);
 
+    // ✅ FIXED: Removed email_verified from SELECT
     const [profiles] = await db.query(
-      `SELECT cp.*, u.is_active, u.email_verified
+      `SELECT cp.*, u.is_active
        FROM consultant_profiles cp
        JOIN users u ON cp.user_id = u.id
        WHERE cp.user_id = ?`,

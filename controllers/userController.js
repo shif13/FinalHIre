@@ -1,6 +1,6 @@
 const db = require('../config/db');
 
-// UPDATED: Remove UNIQUE constraint from email
+// UPDATED: Remove email_verified and verification columns
 const createUsersTable = async () => {
   const createTableQuery = `
     CREATE TABLE IF NOT EXISTS users (
@@ -14,9 +14,6 @@ const createUsersTable = async () => {
       location VARCHAR(255) NOT NULL,
       user_type ENUM('manpower', 'equipment_owner', 'consultant') NOT NULL,
       is_active BOOLEAN DEFAULT true,
-      email_verified BOOLEAN DEFAULT false,
-      verification_token VARCHAR(255),
-      verification_token_expiry TIMESTAMP NULL,
       reset_token VARCHAR(255),
       reset_token_expiry TIMESTAMP NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -27,7 +24,6 @@ const createUsersTable = async () => {
       INDEX idx_location (location),
       INDEX idx_mobile (mobile_number),
       INDEX idx_name (first_name, last_name),
-      INDEX idx_verification_token (verification_token),
       UNIQUE KEY unique_email_role (email, user_type)
     )
   `;
@@ -38,6 +34,71 @@ const createUsersTable = async () => {
   } catch (error) {
     console.error('❌ Error creating users table:', error);
     throw error;
+  }
+};
+
+// Remove verification columns from existing tables
+const removeVerificationColumns = async () => {
+  try {
+    // Check if email_verified column exists
+    const [emailVerifiedColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'email_verified'
+    `);
+
+    if (emailVerifiedColumn.length > 0) {
+      console.log('🔄 Removing email_verified column...');
+      await db.query('ALTER TABLE users DROP COLUMN email_verified');
+      console.log('✅ email_verified column removed');
+    }
+
+    // Check if verification_token column exists
+    const [tokenColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'verification_token'
+    `);
+
+    if (tokenColumn.length > 0) {
+      console.log('🔄 Removing verification_token column...');
+      await db.query('ALTER TABLE users DROP COLUMN verification_token');
+      console.log('✅ verification_token column removed');
+    }
+
+    // Check if verification_token_expiry column exists
+    const [tokenExpiryColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'verification_token_expiry'
+    `);
+
+    if (tokenExpiryColumn.length > 0) {
+      console.log('🔄 Removing verification_token_expiry column...');
+      await db.query('ALTER TABLE users DROP COLUMN verification_token_expiry');
+      console.log('✅ verification_token_expiry column removed');
+    }
+
+    // Remove index on verification_token if it exists
+    const [tokenIndex] = await db.query(`
+      SHOW INDEXES FROM users WHERE Key_name = 'idx_verification_token'
+    `);
+
+    if (tokenIndex.length > 0) {
+      console.log('🔄 Removing idx_verification_token index...');
+      await db.query('ALTER TABLE users DROP INDEX idx_verification_token');
+      console.log('✅ idx_verification_token index removed');
+    }
+
+  } catch (error) {
+    console.error('❌ Error removing verification columns:', error);
+    // Don't throw - allow app to continue
   }
 };
 
@@ -61,11 +122,8 @@ const updateUsersTableSchema = async () => {
     `);
 
     if (idxEmailExists.length === 0) {
-      // Add regular index only if it doesn't exist
       await db.query(`ALTER TABLE users ADD INDEX idx_email (email)`);
       console.log('✅ Regular index added for email');
-    } else {
-      console.log('✅ Index idx_email already exists');
     }
 
     // Add unique constraint on email + user_type combination if it doesn't exist
@@ -80,13 +138,10 @@ const updateUsersTableSchema = async () => {
         ADD UNIQUE KEY unique_email_role (email, user_type)
       `);
       console.log('✅ Unique constraint added for email + user_type combination');
-    } else {
-      console.log('✅ Unique constraint for email + user_type already exists');
     }
 
   } catch (error) {
     console.error('❌ Error updating users table schema:', error);
-    // Don't throw - allow app to continue
   }
 };
 
@@ -113,8 +168,6 @@ const updateUserTypeEnum = async () => {
         `);
         
         console.log('✅ user_type ENUM updated successfully');
-      } else {
-        console.log('✅ user_type ENUM already includes consultant');
       }
     }
   } catch (error) {
@@ -122,57 +175,13 @@ const updateUserTypeEnum = async () => {
   }
 };
 
-// Add verification token columns to existing users table
-const addVerificationTokenColumns = async () => {
-  try {
-    // Check if verification_token column exists
-    const [tokenColumn] = await db.query(`
-      SELECT COLUMN_NAME 
-      FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_SCHEMA = DATABASE() 
-      AND TABLE_NAME = 'users' 
-      AND COLUMN_NAME = 'verification_token'
-    `);
-
-    if (tokenColumn.length === 0) {
-      console.log('🔄 Adding verification token columns to users table...');
-      
-      await db.query(`
-        ALTER TABLE users 
-        ADD COLUMN verification_token VARCHAR(255) NULL AFTER email_verified,
-        ADD COLUMN verification_token_expiry TIMESTAMP NULL AFTER verification_token
-      `);
-      
-      console.log('✅ Verification token columns added successfully');
-    } else {
-      console.log('✅ Verification token columns already exist');
-    }
-
-    // Also check if index exists and add it
-    const [tokenIndex] = await db.query(`
-      SHOW INDEXES FROM users WHERE Key_name = 'idx_verification_token'
-    `);
-
-    if (tokenIndex.length === 0) {
-      console.log('🔄 Adding index for verification_token...');
-      await db.query(`
-        ALTER TABLE users ADD INDEX idx_verification_token (verification_token)
-      `);
-      console.log('✅ Verification token index added');
-    }
-
-  } catch (error) {
-    console.error('❌ Error adding verification token columns:', error);
-  }
-};
-
 // Initialize table on module load
 (async () => {
   try {
     await createUsersTable();
-    await updateUsersTableSchema(); 
+    await updateUsersTableSchema();
     await updateUserTypeEnum();
-    await addVerificationTokenColumns(); 
+    await removeVerificationColumns(); // ✅ NEW: Remove verification columns
   } catch (error) {
     console.error('Failed to initialize users table:', error);
   }
@@ -220,19 +229,18 @@ const createUser = async (userData) => {
   }
 };
 
-// Get user by email (used by login controller) - UPDATED to get all roles
+// Get user by email (used by login controller)
 const getUserByEmail = async (email) => {
   try {
     const [users] = await db.query(
       `SELECT id, first_name, last_name, email, password, mobile_number, whatsapp_number, 
-              location, user_type, is_active, email_verified, 
-              created_at, last_login
+              location, user_type, is_active, created_at, last_login
        FROM users 
        WHERE email = ?`,
       [email]
     );
 
-    return users; // Return array of all accounts with this email
+    return users;
   } catch (error) {
     console.error('❌ Error fetching user by email:', error);
     throw error;
@@ -244,8 +252,7 @@ const getUserById = async (id) => {
   try {
     const [users] = await db.query(
       `SELECT id, first_name, last_name, email, mobile_number, whatsapp_number, 
-              location, user_type, is_active, email_verified, 
-              created_at, updated_at, last_login
+              location, user_type, is_active, created_at, updated_at, last_login
        FROM users 
        WHERE id = ?`,
       [id]
@@ -276,7 +283,7 @@ const updateLastLogin = async (userId) => {
   }
 };
 
-// Check if email exists with specific role - UPDATED
+// Check if email exists with specific role
 const checkEmailExists = async (email, userType = null) => {
   try {
     let query = 'SELECT id, user_type FROM users WHERE email = ?';
@@ -295,7 +302,7 @@ const checkEmailExists = async (email, userType = null) => {
   }
 };
 
-// NEW: Check if email + role combination exists
+// Check if email + role combination exists
 const checkEmailRoleExists = async (email, userType) => {
   try {
     const [users] = await db.query(
@@ -309,7 +316,7 @@ const checkEmailRoleExists = async (email, userType) => {
   }
 };
 
-// NEW: Get all roles for an email
+// Get all roles for an email
 const getRolesByEmail = async (email) => {
   try {
     const [users] = await db.query(

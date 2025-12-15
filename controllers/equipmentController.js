@@ -298,7 +298,9 @@ const createEquipmentOwnerAccount = async (req, res) => {
       mobile_number: mobileNumber,
       whatsapp_number: finalWhatsappNumber,
       location,
-      user_type: 'equipment_owner'
+      user_type: 'equipment_owner',
+      privacy_policy_accepted: true,
+      privacy_policy_accepted_at: new Date()
     });
 
     const userId = userResult.userId;

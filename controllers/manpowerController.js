@@ -311,7 +311,6 @@ const createManpowerAccount = async (req, res) => {
     // Auto-fill WhatsApp with mobile if not provided
     const finalWhatsappNumber = whatsappNumber ? whatsappNumber.trim() : trimmedMobile;
 
-    // Step 1: Create user in users table
     console.log('👤 Creating user in users table...');
     let userResult;
     try {
@@ -323,7 +322,9 @@ const createManpowerAccount = async (req, res) => {
         mobile_number: trimmedMobile,
         whatsapp_number: finalWhatsappNumber,
         location: trimmedLocation,
-        user_type: 'manpower'
+        user_type: 'manpower',
+        privacy_policy_accepted: true,
+        privacy_policy_accepted_at: new Date()
       });
     } catch (userError) {
       console.error('❌ Error creating user:', userError);

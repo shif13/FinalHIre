@@ -270,7 +270,9 @@ const createConsultantAccount = async (req, res) => {
       mobile_number: trimmedMobile,
       whatsapp_number: finalWhatsappNumber,
       location: trimmedLocation,
-      user_type: 'consultant'
+      user_type: 'consultant',
+      privacy_policy_accepted: true,
+      privacy_policy_accepted_at: new Date()
     });
 
     const userId = userResult.userId;

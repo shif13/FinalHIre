@@ -175,13 +175,67 @@ const updateUserTypeEnum = async () => {
   }
 };
 
-// Initialize table on module load
+// ✅ Add privacy policy columns if they don't exist
+const addPrivacyPolicyColumns = async () => {
+  try {
+    // Check if privacy_policy_accepted column exists
+    const [columns] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'privacy_policy_accepted'
+    `);
+
+    if (columns.length === 0) {
+      console.log('🔄 Adding privacy_policy_accepted column to users table...');
+      
+      await db.query(`
+        ALTER TABLE users 
+        ADD COLUMN privacy_policy_accepted BOOLEAN DEFAULT FALSE AFTER is_active
+      `);
+      
+      console.log('✅ privacy_policy_accepted column added successfully');
+    } else {
+      console.log('✅ privacy_policy_accepted column already exists');
+    }
+
+    // Check if privacy_policy_accepted_at column exists
+    const [timestampColumns] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'privacy_policy_accepted_at'
+    `);
+
+    if (timestampColumns.length === 0) {
+      console.log('🔄 Adding privacy_policy_accepted_at column to users table...');
+      
+      await db.query(`
+        ALTER TABLE users 
+        ADD COLUMN privacy_policy_accepted_at TIMESTAMP NULL AFTER privacy_policy_accepted
+      `);
+      
+      console.log('✅ privacy_policy_accepted_at column added successfully');
+    } else {
+      console.log('✅ privacy_policy_accepted_at column already exists');
+    }
+
+  } catch (error) {
+    console.error('❌ Error adding privacy policy columns:', error);
+    // Don't throw - allow app to continue
+  }
+};
+
+// ✅ Initialize table on module load - CORRECT ORDER
 (async () => {
   try {
     await createUsersTable();
     await updateUsersTableSchema();
     await updateUserTypeEnum();
-    await removeVerificationColumns(); // ✅ NEW: Remove verification columns
+    await removeVerificationColumns();
+    await addPrivacyPolicyColumns(); // ✅ Now it's called AFTER all functions are defined
   } catch (error) {
     console.error('Failed to initialize users table:', error);
   }
@@ -197,14 +251,17 @@ const createUser = async (userData) => {
     mobile_number,
     whatsapp_number,
     location,
-    user_type
+    user_type,
+    privacy_policy_accepted = true,
+    privacy_policy_accepted_at = new Date()
   } = userData;
 
   try {
     const insertQuery = `
       INSERT INTO users 
-      (first_name, last_name, email, password, mobile_number, whatsapp_number, location, user_type, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, true)
+      (first_name, last_name, email, password, mobile_number, whatsapp_number, 
+       location, user_type, is_active, privacy_policy_accepted, privacy_policy_accepted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?)
     `;
 
     const [result] = await db.query(insertQuery, [
@@ -215,7 +272,9 @@ const createUser = async (userData) => {
       mobile_number,
       whatsapp_number || mobile_number,
       location,
-      user_type
+      user_type,
+      privacy_policy_accepted,
+      privacy_policy_accepted_at
     ]);
 
     console.log(`✅ User created in users table: ${email} (ID: ${result.insertId}, type: ${user_type})`);
@@ -325,7 +384,7 @@ const getRolesByEmail = async (email) => {
     );
     return users.map(u => u.user_type);
   } catch (error) {
-    console.error('❌ Error fetching roles by email:', error);
+    console.error('Error fetching roles by email:', error);
     throw error;
   }
 };

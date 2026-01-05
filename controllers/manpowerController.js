@@ -49,7 +49,6 @@ const createManpowerTable = async () => {
   }
 };
 
-// Update manpower_profiles table to add national_id column (for existing tables)
 const addNationalIdColumn = async () => {
   try {
     // Check if national_id column exists
@@ -78,11 +77,112 @@ const addNationalIdColumn = async () => {
   }
 };
 
+// Add profile_type and last_modified columns
+const addProfileTrackingColumns = async () => {
+  try {
+    // Check if profile_type column exists
+    const [profileTypeColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'manpower_profiles' 
+      AND COLUMN_NAME = 'profile_type'
+    `);
+
+    if (profileTypeColumn.length === 0) {
+      console.log('📄 Adding profile_type column to manpower_profiles...');
+      
+      await db.query(`
+        ALTER TABLE manpower_profiles 
+        ADD COLUMN profile_type ENUM('individual', 'consultant_managed') 
+        DEFAULT 'individual' 
+        AFTER user_id,
+        ADD INDEX idx_profile_type (profile_type)
+      `);
+      
+      console.log('✅ profile_type column added successfully');
+      
+      // Update existing consultant-managed profiles
+      console.log('🔄 Updating existing consultant-managed profiles...');
+      await db.query(`
+        UPDATE manpower_profiles mp
+        INNER JOIN users u ON mp.user_id = u.id
+        SET mp.profile_type = 'consultant_managed'
+        WHERE u.user_type = 'consultant'
+      `);
+      console.log('✅ Existing profiles updated');
+    } else {
+      console.log('✅ profile_type column already exists');
+    }
+
+    // Check if last_modified column exists
+    const [lastModifiedColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'manpower_profiles' 
+      AND COLUMN_NAME = 'last_modified'
+    `);
+
+    if (lastModifiedColumn.length === 0) {
+      console.log('📄 Adding last_modified column to manpower_profiles...');
+      
+      await db.query(`
+        ALTER TABLE manpower_profiles 
+        ADD COLUMN last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP 
+        AFTER updated_at,
+        ADD INDEX idx_last_modified (last_modified)
+      `);
+      
+      console.log('✅ last_modified column added successfully');
+      
+      // Set last_modified to updated_at for existing records
+      console.log('🔄 Initializing last_modified for existing records...');
+      await db.query(`
+        UPDATE manpower_profiles 
+        SET last_modified = updated_at
+      `);
+      console.log('✅ last_modified initialized');
+    } else {
+      console.log('✅ last_modified column already exists');
+    }
+
+    // Check if modified_by column exists
+    const [modifiedByColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'manpower_profiles' 
+      AND COLUMN_NAME = 'modified_by'
+    `);
+
+    if (modifiedByColumn.length === 0) {
+      console.log('📄 Adding modified_by column to manpower_profiles...');
+      
+      await db.query(`
+        ALTER TABLE manpower_profiles 
+        ADD COLUMN modified_by INT NULL 
+        AFTER last_modified,
+        ADD COLUMN modification_note TEXT NULL 
+        AFTER modified_by
+      `);
+      
+      console.log('✅ modified_by and modification_note columns added successfully');
+    } else {
+      console.log('✅ modified_by column already exists');
+    }
+
+  } catch (error) {
+    console.error('❌ Error adding profile tracking columns:', error);
+  }
+};
+
 // Initialize table on module load
 (async () => {
   try {
     await createManpowerTable();
     await addNationalIdColumn();
+    await addProfileTrackingColumns();
   } catch (error) {
     console.error('Failed to initialize manpower profiles table:', error);
   }
@@ -344,17 +444,20 @@ const createManpowerAccount = async (req, res) => {
     const userId = userResult.userId;
     console.log('✅ User created with ID:', userId);
 
-    // Step 2: Create manpower profile
-    console.log('💼 Creating manpower profile...');
-    try {
-      await db.query(
-        `INSERT INTO manpower_profiles 
-        (user_id, first_name, last_name, email, mobile_number, whatsapp_number, national_id, location, 
-         job_title, availability_status, available_from, rate, profile_description, 
-         profile_photo, cv_path, certificates) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+// Determine profile type based on user type
+const profileType = userResult.userType === 'consultant' ? 'consultant_managed' : 'individual';
+
+// Step 2: Create manpower profile
+console.log('💼 Creating manpower profile...');
+try {
+  await db.query(
+    `INSERT INTO manpower_profiles 
+    (user_id, profile_type, first_name, last_name, email, mobile_number, whatsapp_number, 
+     national_id, location, job_title, availability_status, available_from, rate, 
+     profile_description, profile_photo, cv_path, certificates, last_modified, modified_by) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,        [
           userId,
+          profileType,
           trimmedFirstName,
           trimmedLastName,
           trimmedEmail,
@@ -369,7 +472,8 @@ const createManpowerAccount = async (req, res) => {
           profileDescription || null,
           profilePhotoUrl,
           cvPath,
-          JSON.stringify(certificatePaths)
+          JSON.stringify(certificatePaths),
+          userId
         ]
       );
     } catch (profileError) {
@@ -643,12 +747,14 @@ const updateProfile = async (req, res) => {
     }
 
     // Update manpower profile
+    // Update manpower profile
     await db.query(
       `UPDATE manpower_profiles 
        SET first_name = ?, last_name = ?, job_title = ?, availability_status = ?,
            available_from = ?, location = ?, rate = ?, mobile_number = ?,
            whatsapp_number = ?, national_id = ?, profile_description = ?, profile_photo = ?,
-           cv_path = ?, certificates = ?, updated_at = NOW()
+           cv_path = ?, certificates = ?, updated_at = NOW(),
+           last_modified = NOW(), modified_by = ?
        WHERE user_id = ?`,
       [
         firstName || current.first_name,
@@ -665,6 +771,7 @@ const updateProfile = async (req, res) => {
         profilePhotoUrl,
         cvPath,
         JSON.stringify(certificatePaths),
+        userId,
         userId
       ]
     );
@@ -711,8 +818,46 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// Get profile modification history
+const getProfileModificationHistory = async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const query = `
+      SELECT 
+        mp.last_modified,
+        mp.modified_by,
+        mp.modification_note,
+        u.first_name as modifier_first_name,
+        u.last_name as modifier_last_name,
+        u.user_type as modifier_type
+      FROM manpower_profiles mp
+      LEFT JOIN users u ON mp.modified_by = u.id
+      WHERE mp.user_id = ?
+      ORDER BY mp.last_modified DESC
+      LIMIT 1
+    `;
+
+    const [history] = await db.query(query, [userId]);
+
+    res.status(200).json({
+      success: true,
+      history: history[0] || null
+    });
+
+  } catch (error) {
+    console.error('❌ Get modification history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching modification history',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createManpowerAccount,
   getProfile,
-  updateProfile
+  updateProfile,
+  getProfileModificationHistory
 };

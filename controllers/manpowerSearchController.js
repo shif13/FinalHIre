@@ -9,6 +9,8 @@ const categoryCache = new NodeCache({
   checkperiod: 600 // Check for expired keys every 10 minutes
 });
 
+// Updated search functions to include new tracking fields
+
 const searchManpower = async (req, res) => {
   const startTime = Date.now();
   const { jobTitle, location, availabilityStatus } = req.body;
@@ -18,6 +20,7 @@ const searchManpower = async (req, res) => {
       SELECT 
         mp.id,
         mp.user_id,
+        mp.profile_type,
         mp.first_name,
         mp.last_name,
         mp.email,
@@ -33,6 +36,7 @@ const searchManpower = async (req, res) => {
         mp.cv_path,
         mp.certificates,
         mp.created_at,
+        mp.last_modified,
         u.user_type,
         cp.name as consultant_name,
         cp.company_name as consultant_company
@@ -44,34 +48,22 @@ const searchManpower = async (req, res) => {
 
     const params = [];
 
-    // Job title search
+    // Job Title Filter
     if (jobTitle && jobTitle.trim()) {
-      const searchTerm = jobTitle.toLowerCase().trim();
-      query += ` AND (
-        LOWER(mp.job_title) LIKE ? OR 
-        LOWER(mp.profile_description) LIKE ?
-      )`;
-      const searchPattern = `%${searchTerm}%`;
-      params.push(searchPattern, searchPattern);
+      query += ` AND mp.job_title LIKE ?`;
+      params.push(`%${jobTitle.trim()}%`);
     }
 
-    // Location filter
+    // Location Filter
     if (location && location.trim()) {
-      const locationQuery = buildLocationQuery(location.trim());
-      if (locationQuery.condition) {
-        const fixedCondition = locationQuery.condition.replace(/LOWER\(location\)/g, 'LOWER(mp.location)');
-        query += ` AND ${fixedCondition}`;
-        params.push(...locationQuery.params);
-      }
+      query += ` AND mp.location LIKE ?`;
+      params.push(`%${location.trim()}%`);
     }
 
-    // Availability filter
-    if (availabilityStatus && availabilityStatus.trim()) {
-      const status = availabilityStatus.trim().toLowerCase();
-      if (status === 'available' || status === 'busy') {
-        query += ` AND mp.availability_status = ?`;
-        params.push(status);
-      }
+    // Availability Filter
+    if (availabilityStatus) {
+      query += ` AND mp.availability_status = ?`;
+      params.push(availabilityStatus);
     }
 
     query += ` ORDER BY mp.created_at DESC LIMIT 100`;
@@ -79,23 +71,61 @@ const searchManpower = async (req, res) => {
     const [manpower] = await db.query(query, params);
 
     const parsedManpower = manpower.map(profile => {
+      // ✅ FIX: Calculate relevanceScore BEFORE using it
       let relevanceScore = 0;
-      if (jobTitle && jobTitle.trim()) {
-        const searchTerm = jobTitle.toLowerCase();
-        const title = (profile.job_title || '').toLowerCase();
-        const desc = (profile.profile_description || '').toLowerCase();
-
-        if (title === searchTerm) relevanceScore += 10;
-        else if (title.includes(searchTerm)) relevanceScore += 5;
-        if (desc.includes(searchTerm)) relevanceScore += 3;
-        if (location) {
-          const profileLocation = (profile.location || '').toLowerCase();
-          if (profileLocation.includes(location.toLowerCase())) relevanceScore += 4;
-        }
-        if (profile.availability_status === 'available') relevanceScore += 2;
-        if (profile.cv_path) relevanceScore += 1;
-      }
       
+      // Add points for exact job title match
+      if (jobTitle && profile.job_title) {
+        const searchLower = jobTitle.toLowerCase();
+        const titleLower = profile.job_title.toLowerCase();
+        if (titleLower === searchLower) {
+          relevanceScore += 10;
+        } else if (titleLower.includes(searchLower)) {
+          relevanceScore += 5;
+        }
+      }
+
+      // Add points for location match
+      if (location && profile.location) {
+        const searchLower = location.toLowerCase();
+        const locationLower = profile.location.toLowerCase();
+        if (locationLower === searchLower) {
+          relevanceScore += 10;
+        } else if (locationLower.includes(searchLower)) {
+          relevanceScore += 5;
+        }
+      }
+
+      // Add points for availability
+      if (profile.availability_status === 'available') {
+        relevanceScore += 3;
+      }
+
+      // Add points for having CV
+      if (profile.cv_path) {
+        relevanceScore += 2;
+      }
+
+      // Add points for having certificates
+      if (profile.certificates) {
+        try {
+          let certs = [];
+          if (Buffer.isBuffer(profile.certificates)) {
+            certs = JSON.parse(profile.certificates.toString('utf8'));
+          } else if (typeof profile.certificates === 'string') {
+            certs = JSON.parse(profile.certificates);
+          } else if (Array.isArray(profile.certificates)) {
+            certs = profile.certificates;
+          }
+          if (certs.length > 0) {
+            relevanceScore += certs.length;
+          }
+        } catch (e) {
+          // Ignore parsing errors
+        }
+      }
+
+      // Parse certificates
       let certificates = [];
       try {
         if (profile.certificates) {
@@ -111,13 +141,15 @@ const searchManpower = async (req, res) => {
         certificates = [];
       }
 
-      const isConsultantManaged = profile.user_type === 'consultant';
+      const isConsultantManaged = profile.profile_type === 'consultant_managed';
       
       return {
         ...profile,
         certificates,
-        relevanceScore,
+        relevanceScore, // ✅ Now this is defined
         isConsultantManaged,
+        profileType: profile.profile_type,
+        lastModified: profile.last_modified,
         managedBy: isConsultantManaged ? {
           name: profile.consultant_name,
           company: profile.consultant_company
@@ -125,18 +157,16 @@ const searchManpower = async (req, res) => {
       };
     });
 
-    const sortedManpower = jobTitle && jobTitle.trim() 
-      ? parsedManpower.sort((a, b) => b.relevanceScore - a.relevanceScore)
-      : parsedManpower;
+    // Sort by relevance score (highest first)
+    parsedManpower.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-    const responseTime = Date.now() - startTime;
+    const executionTime = Date.now() - startTime;
 
     res.json({
       success: true,
-      manpower: sortedManpower,
-      total: sortedManpower.length,
-      searchCriteria: { jobTitle, location, availabilityStatus },
-      processingTime: `${responseTime}ms`,
+      manpower: parsedManpower,
+      count: parsedManpower.length,
+      executionTime: `${executionTime}ms`,
       timestamp: new Date().toISOString()
     });
 
@@ -151,7 +181,6 @@ const searchManpower = async (req, res) => {
   }
 };
 
-// ✅✅✅ FIXED: Removed u.email_verified from SELECT
 const getManpowerDetails = async (req, res) => {
   const { manpowerId } = req.params;
 
@@ -165,6 +194,9 @@ const getManpowerDetails = async (req, res) => {
         mp.*,
         u.is_active,
         u.user_type,
+        modifier.first_name as modifier_first_name,
+        modifier.last_name as modifier_last_name,
+        modifier.user_type as modifier_type,
         cp.name as consultant_name,
         cp.company_name as consultant_company,
         cp.email as consultant_email,
@@ -172,6 +204,7 @@ const getManpowerDetails = async (req, res) => {
         cp.whatsapp_number as consultant_whatsapp
       FROM manpower_profiles mp
       LEFT JOIN users u ON mp.user_id = u.id
+      LEFT JOIN users modifier ON mp.modified_by = modifier.id
       LEFT JOIN consultant_profiles cp ON mp.user_id = cp.user_id
       WHERE mp.id = ?
     `;
@@ -199,12 +232,19 @@ const getManpowerDetails = async (req, res) => {
       parsedCertificates = [];
     }
 
-    const isConsultantManaged = profile.user_type === 'consultant';
+    const isConsultantManaged = profile.profile_type === 'consultant_managed';
 
     const parsedProfile = {
       ...profile,
       certificates: parsedCertificates,
       isConsultantManaged,
+      profileType: profile.profile_type,
+      lastModified: profile.last_modified,
+      modifiedBy: profile.modified_by ? {
+        firstName: profile.modifier_first_name,
+        lastName: profile.modifier_last_name,
+        userType: profile.modifier_type
+      } : null,
       managedBy: isConsultantManaged ? {
         name: profile.consultant_name,
         company: profile.consultant_company,
@@ -301,7 +341,7 @@ const getProfessionalCategories = async (req, res) => {
 // Helper function to manually clear cache (useful for admin actions)
 const clearCategoryCache = () => {
   categoryCache.del('professional_categories');
-  console.log('🗑️  Category cache cleared');
+  console.log('🗑️ Category cache cleared');
 };
 
 // Optional: Add endpoint to clear cache manually

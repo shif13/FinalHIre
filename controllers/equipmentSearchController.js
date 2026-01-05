@@ -301,10 +301,12 @@ const getOwnerProfile = async (req, res) => {
         eop.email,
         eop.mobile_number,
         eop.whatsapp_number,
+        eop.national_id,
         eop.location,
         eop.company_name,
         eop.profile_photo,
-        eop.equipment_count
+        eop.equipment_count,
+        eop.updated_at  -- ✅ ADD THIS LINE
       FROM equipment_owner_profiles eop
       WHERE eop.user_id = ?
     `;

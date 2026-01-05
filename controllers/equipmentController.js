@@ -914,6 +914,9 @@ const uploadEquipmentImages = async (req, res) => {
 // ==========================================
 // GET OWNER PROFILE (Public Access)
 // ==========================================
+// ==========================================
+// GET OWNER PROFILE (Public Access)
+// ==========================================
 const getOwnerProfile = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -928,7 +931,8 @@ const getOwnerProfile = async (req, res) => {
         eop.location,
         eop.company_name,
         eop.profile_photo,
-        eop.equipment_count
+        eop.equipment_count,
+        eop.updated_at
       FROM equipment_owner_profiles eop
       WHERE eop.user_id = ?
     `;

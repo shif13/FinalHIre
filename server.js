@@ -25,6 +25,10 @@ const inquiryRoutes = require('./routes/inquiryRoutes');
 const consultantRoutes = require('./routes/consultantRoutes');
 const universalSearchRoutes = require('./routes/universalSearchRoutes');
 
+//Job routes
+const jobPosterRoutes = require('./routes/jobPosterRoutes');
+const jobSearchRoutes = require('./routes/jobSearchRoutes');
+
 // Initialize express app
 const app = express();
 
@@ -93,6 +97,10 @@ app.use('/api/equipment-search', equipmentSearchRoutes);
 app.use('/api/inquiry', inquiryRoutes);
 app.use('/api/consultant', consultantRoutes);
 app.use('/api/universal-search', universalSearchRoutes);
+
+//Job
+app.use('/api/job-poster', jobPosterRoutes);
+app.use('/api/job-search', jobSearchRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

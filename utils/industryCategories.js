@@ -1,173 +1,174 @@
-// utils/industryCategories.js
-
-/**
- * Comprehensive Industry Categories for Job Postings
- * Covers all major sectors globally
- */
+// utils/industryCategories.js - Complete Industry Categories
 
 const INDUSTRY_CATEGORIES = [
   // Construction & Infrastructure
-  'Construction & Building',
-  'Civil Engineering',
+  'Construction & Civil Engineering',
   'Architecture & Design',
-  'Real Estate & Property',
+  'Real Estate Development',
+  'Interior Design & Fit-out',
+  
+  // Oil, Gas & Energy
+  'Oil & Gas',
+  'Renewable Energy',
+  'Power Generation & Distribution',
+  'Energy Services',
   
   // Manufacturing & Production
   'Manufacturing & Production',
-  'Automotive & Vehicles',
-  'Aerospace & Aviation',
-  'Electronics & Electrical',
-  'Textiles & Apparel',
+  'Automotive Manufacturing',
   'Food & Beverage Production',
+  'Textile & Garment Manufacturing',
+  'Chemical Manufacturing',
+  'Pharmaceutical Manufacturing',
   
-  // Energy & Resources
-  'Oil & Gas',
-  'Mining & Metals',
-  'Renewable Energy',
-  'Utilities & Power',
-  
-  // Technology & IT
+  // Information Technology
   'Information Technology',
   'Software Development',
-  'Telecommunications',
   'Cybersecurity',
+  'Cloud Computing & DevOps',
   'Data Science & Analytics',
+  'Web & Mobile Development',
   
   // Healthcare & Medical
   'Healthcare & Medical',
+  'Hospitals & Clinics',
   'Pharmaceuticals',
-  'Biotechnology',
-  'Medical Devices',
+  'Medical Devices & Equipment',
+  'Healthcare Services',
   
-  // Finance & Business
-  'Banking & Finance',
-  'Insurance',
-  'Accounting & Auditing',
-  'Consulting & Strategy',
-  'Human Resources',
+  // Engineering Services
+  'Mechanical Engineering',
+  'Electrical Engineering',
+  'Chemical Engineering',
+  'Industrial Engineering',
+  'Environmental Engineering',
   
-  // Retail & Commerce
-  'Retail & E-commerce',
-  'Wholesale & Distribution',
-  'Supply Chain & Logistics',
-  'Transportation & Delivery',
+  // Transportation & Logistics
+  'Transportation & Logistics',
+  'Supply Chain Management',
+  'Warehousing & Distribution',
+  'Freight & Shipping',
+  'Aviation & Aerospace',
   
-  // Hospitality & Services
-  'Hotels & Hospitality',
+  // Hospitality & Tourism
+  'Hospitality & Hotels',
+  'Restaurants & Food Services',
   'Tourism & Travel',
-  'Restaurants & Food Service',
   'Event Management',
+  
+  // Retail & E-commerce
+  'Retail & Consumer Goods',
+  'E-commerce',
+  'Wholesale & Distribution',
+  
+  // Finance & Banking
+  'Banking & Financial Services',
+  'Insurance',
+  'Investment & Asset Management',
+  'Fintech',
+  
+  // Telecommunications
+  'Telecommunications',
+  'Network Infrastructure',
+  'Telecom Services',
   
   // Education & Training
   'Education & Training',
-  'E-Learning & EdTech',
-  'Research & Development',
+  'E-learning & EdTech',
+  'Corporate Training',
+  
+  // Mining & Metals
+  'Mining & Extraction',
+  'Metals & Metallurgy',
+  'Mineral Processing',
+  
+  // Agriculture & Food
+  'Agriculture & Farming',
+  'Food Processing',
+  'Agritech',
   
   // Media & Entertainment
-  'Media & Broadcasting',
-  'Advertising & Marketing',
-  'Entertainment & Arts',
-  'Publishing & Printing',
-  
-  // Agriculture & Environment
-  'Agriculture & Farming',
-  'Forestry & Fisheries',
-  'Environmental Services',
-  'Waste Management',
+  'Media & Entertainment',
+  'Broadcasting',
+  'Film & Video Production',
+  'Digital Media',
   
   // Professional Services
+  'Consulting Services',
   'Legal Services',
-  'Engineering Services',
-  'Security Services',
-  'Facilities Management',
-  'Cleaning & Maintenance',
+  'Accounting & Audit',
+  'Human Resources',
+  'Marketing & Advertising',
   
-  // Government & Non-Profit
-  'Government & Public Sector',
-  'Non-Profit & NGO',
-  'Social Services',
+  // Government & Public Sector
+  'Government & Public Administration',
+  'Defense & Security',
+  'Public Utilities',
+  
+  // Environmental Services
+  'Environmental Services',
+  'Waste Management',
+  'Water Treatment',
+  
+  // Security Services
+  'Security Services',
+  'Facility Management',
   
   // Other
   'Other Industries'
 ];
 
-/**
- * Job Types - Employment Categories
- */
+// Job Types
 const JOB_TYPES = [
-  { value: 'full-time', label: 'Full-Time' },
-  { value: 'part-time', label: 'Part-Time' },
-  { value: 'contract', label: 'Contract' },
-  { value: 'temporary', label: 'Temporary' },
-  { value: 'internship', label: 'Internship' }
+  'full-time',
+  'part-time',
+  'contract',
+  'temporary',
+  'internship'
 ];
 
-/**
- * Experience Levels
- */
+// Experience Levels
 const EXPERIENCE_LEVELS = [
-  { value: 'entry', label: 'Entry Level (0-2 years)' },
-  { value: 'mid', label: 'Mid Level (2-5 years)' },
-  { value: 'senior', label: 'Senior Level (5-10 years)' },
-  { value: 'executive', label: 'Executive (10+ years)' }
+  'entry',
+  'mid',
+  'senior',
+  'executive'
 ];
 
-/**
- * Company Sizes
- */
+// Company Sizes
 const COMPANY_SIZES = [
-  { value: '1-10', label: '1-10 employees' },
-  { value: '11-50', label: '11-50 employees' },
-  { value: '51-200', label: '51-200 employees' },
-  { value: '201-500', label: '201-500 employees' },
-  { value: '500+', label: '500+ employees' }
+  '1-10',
+  '11-50',
+  '51-200',
+  '201-500',
+  '500+'
 ];
 
-/**
- * Salary Ranges (Flexible - users can also enter custom)
- */
-const SALARY_RANGES = [
-  'Negotiable',
-  'Undisclosed',
-  '$10,000 - $20,000',
-  '$20,000 - $30,000',
-  '$30,000 - $40,000',
-  '$40,000 - $50,000',
-  '$50,000 - $75,000',
-  '$75,000 - $100,000',
-  '$100,000 - $150,000',
-  '$150,000+'
-];
-
-/**
- * Job Status Options
- */
-const JOB_STATUS = [
-  { value: 'open', label: 'Open', color: 'green' },
-  { value: 'closed', label: 'Closed', color: 'gray' },
-  { value: 'filled', label: 'Filled', color: 'blue' }
-];
-
-/**
- * Default Job Expiry Days
- */
+// Default job expiry days
 const DEFAULT_JOB_EXPIRY_DAYS = 30;
 
-/**
- * Helper: Get industry by partial match
- */
-const findIndustry = (searchTerm) => {
-  const term = searchTerm.toLowerCase();
-  return INDUSTRY_CATEGORIES.find(industry => 
-    industry.toLowerCase().includes(term)
-  );
-};
-
-/**
- * Helper: Validate industry
- */
+// Validation functions
 const isValidIndustry = (industry) => {
   return INDUSTRY_CATEGORIES.includes(industry);
+};
+
+const isValidJobType = (jobType) => {
+  return JOB_TYPES.includes(jobType);
+};
+
+const isValidExperienceLevel = (level) => {
+  return EXPERIENCE_LEVELS.includes(level);
+};
+
+const isValidCompanySize = (size) => {
+  return COMPANY_SIZES.includes(size);
+};
+
+// Get expiry date from now
+const getExpiryDate = (daysFromNow = DEFAULT_JOB_EXPIRY_DAYS) => {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  return date.toISOString().split('T')[0]; // Return YYYY-MM-DD format
 };
 
 module.exports = {
@@ -175,9 +176,10 @@ module.exports = {
   JOB_TYPES,
   EXPERIENCE_LEVELS,
   COMPANY_SIZES,
-  SALARY_RANGES,
-  JOB_STATUS,
   DEFAULT_JOB_EXPIRY_DAYS,
-  findIndustry,
-  isValidIndustry
+  isValidIndustry,
+  isValidJobType,
+  isValidExperienceLevel,
+  isValidCompanySize,
+  getExpiryDate
 };

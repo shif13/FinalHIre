@@ -620,6 +620,145 @@ const sendVerificationOTPEmail = async (user, otp) => {
 };
 
 // ==========================================
+// 7. JOB APPLICATION EMAIL TO EMPLOYER
+// ==========================================
+const sendJobApplicationEmail = async (employerData, applicantData) => {
+  const { email, posterName, companyName, jobTitle } = employerData;
+  const { name, email: applicantEmail, phone, message } = applicantData;
+
+  const content = `
+    <h2>New Job Application! 🎯</h2>
+    <p>Hi <strong>${posterName}</strong>,</p>
+    <p>Great news! You have received a new application for your <strong>${jobTitle}</strong> position at <strong>${companyName}</strong>.</p>
+
+    <div class="contact-card">
+      <h3>👤 Applicant Information</h3>
+      <div class="contact-item"><strong>Name:</strong> ${name}</div>
+      <div class="contact-item"><strong>Email:</strong> <a href="mailto:${applicantEmail}">${applicantEmail}</a></div>
+      ${phone ? `<div class="contact-item"><strong>Phone:</strong> <a href="tel:${phone}">${phone}</a></div>` : ''}
+    </div>
+
+    ${message ? `
+      <div class="info-box">
+        <p style="margin: 0;"><strong>📝 Cover Message:</strong></p>
+        <p style="margin: 8px 0 0 0; white-space: pre-wrap;">${message}</p>
+      </div>
+    ` : ''}
+
+    <p><strong>Next Steps:</strong></p>
+    <ol style="color: #4b5563; margin: 12px 0; padding-left: 20px;">
+      <li>Review the applicant's information and cover message</li>
+      <li>If interested, request their resume/CV</li>
+      <li>Schedule an interview if they match your requirements</li>
+      <li>Contact them using the details provided above</li>
+    </ol>
+
+    <div style="text-align: center;">
+      <a href="mailto:${applicantEmail}?subject=Re: Application for ${encodeURIComponent(jobTitle)} at ${encodeURIComponent(companyName)}" class="button">
+        Reply to Applicant →
+      </a>
+    </div>
+
+    <div class="divider"></div>
+
+    <p><strong>💡 Pro Tip:</strong> Quick responses show professionalism and help you secure top talent. Try to respond within 24-48 hours!</p>
+
+    <p>Best regards,<br><strong>The Find-Hire Team</strong></p>
+  `;
+
+  const mailOptions = {
+    from: `"Find-Hire.Co Jobs" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: `🎯 New Application: ${jobTitle} - ${name}`,
+    html: getEmailTemplate('New Job Application!', content, 'You can reply directly to the applicant using their email address above.'),
+    replyTo: applicantEmail
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Job application notification sent to employer: ${email}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Job application email error:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// ==========================================
+// 8. APPLICATION CONFIRMATION TO APPLICANT
+// ==========================================
+const sendApplicationConfirmationEmail = async (applicantData, jobData) => {
+  const { email, name } = applicantData;
+  const { jobTitle, companyName } = jobData;
+
+  const content = `
+    <h2>Application Submitted Successfully! ✅</h2>
+    <p>Hi <strong>${name}</strong>,</p>
+    <p>Thank you for applying! Your application for the <strong>${jobTitle}</strong> position at <strong>${companyName}</strong> has been successfully submitted.</p>
+
+    <div class="info-box">
+      <p style="margin: 0;">
+        <strong>📋 Position Applied:</strong> ${jobTitle}<br>
+        <strong>🏢 Company:</strong> ${companyName}<br>
+        <strong>📅 Applied on:</strong> ${new Date().toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })}
+      </p>
+    </div>
+
+    <p><strong>What happens next?</strong></p>
+    <ol style="color: #4b5563; margin: 12px 0; padding-left: 20px;">
+      <li>${companyName} will review your application</li>
+      <li>If shortlisted, they will contact you directly via email or phone</li>
+      <li>You may be invited for an interview or assessment</li>
+      <li>Keep your phone and email accessible for updates</li>
+    </ol>
+
+    <div class="warning-box">
+      <p style="margin: 0;"><strong>⏰ Response Time:</strong> Companies typically respond within 3-7 business days. If you don't hear back, you can apply to other openings on Find-Hire.Co!</p>
+    </div>
+
+    <div style="text-align: center;">
+      <a href="${process.env.FRONTEND_URL || 'https://find-hire.co'}/jobs" class="button">
+        Browse More Jobs →
+      </a>
+    </div>
+
+    <div class="divider"></div>
+
+    <p><strong>📌 Application Tips:</strong></p>
+    <ul style="color: #4b5563; margin: 12px 0; padding-left: 20px;">
+      <li>Keep your phone and email accessible</li>
+      <li>Prepare your resume/CV in case they request it</li>
+      <li>Research the company before any interview</li>
+      <li>Follow up politely if you don't hear back in 7 days</li>
+    </ul>
+
+    <p>Good luck with your application!</p>
+
+    <p>Best regards,<br><strong>The Find-Hire Team</strong></p>
+  `;
+
+  const mailOptions = {
+    from: `"Find-Hire.Co Jobs" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: `✅ Application Submitted: ${jobTitle} at ${companyName}`,
+    html: getEmailTemplate('Application Submitted!', content, 'This is an automated confirmation.')
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Application confirmation sent to ${email}`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Application confirmation email error:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// ==========================================
 // EXPORT ALL FUNCTIONS
 // ==========================================
 module.exports = {
@@ -630,5 +769,7 @@ module.exports = {
   sendEquipmentInquiryEmail,
   sendInquiryConfirmationEmail,
   sendVerificationOTPEmail,
+  sendJobApplicationEmail,          
+  sendApplicationConfirmationEmail,
   transporter 
 };

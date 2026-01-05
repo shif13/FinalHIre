@@ -1,4 +1,4 @@
-// controllers/jobPosterController.js
+// controllers/jobPosterController.js - COMPLETE VERSION
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const cloudinary = require('../config/cloudinary');
@@ -553,8 +553,330 @@ const updateJobPosterProfile = async (req, res) => {
   }
 };
 
+// ==========================================
+// CREATE JOB
+// ==========================================
+const createJob = async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    console.log('➕ Creating job for user:', userId);
+
+    const {
+      jobTitle,
+      industry,
+      location,
+      jobType,
+      experienceLevel,
+      salaryRange,
+      description,
+      requirements,
+      benefits,
+      expiryDays
+    } = req.body;
+
+    // Validation
+    if (!jobTitle || !location || !jobType || !experienceLevel || !description) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please fill in all required fields (job title, location, job type, experience level, description)'
+      });
+    }
+
+    // Get company name from profile
+    const [profiles] = await db.query(
+      'SELECT company_name FROM job_poster_profiles WHERE user_id = ?',
+      [userId]
+    );
+
+    if (profiles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job poster profile not found'
+      });
+    }
+
+    const companyName = profiles[0].company_name;
+
+    // Calculate expiry date
+    const daysUntilExpiry = parseInt(expiryDays) || DEFAULT_JOB_EXPIRY_DAYS;
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + daysUntilExpiry);
+    const formattedExpiryDate = expiryDate.toISOString().split('T')[0];
+
+    // Insert job
+    const [result] = await db.query(
+      `INSERT INTO jobs 
+      (user_id, job_title, company_name, industry, location, job_type, 
+       experience_level, salary_range, description, requirements, benefits, 
+       status, expiry_date, auto_close_on_expiry) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, TRUE)`,
+      [
+        userId,
+        jobTitle.trim(),
+        companyName,
+        industry || null,
+        location.trim(),
+        jobType,
+        experienceLevel,
+        salaryRange || null,
+        description.trim(),
+        requirements || null,
+        benefits || null,
+        formattedExpiryDate
+      ]
+    );
+
+    // Increment jobs_count
+    await db.query(
+      'UPDATE job_poster_profiles SET jobs_count = jobs_count + 1 WHERE user_id = ?',
+      [userId]
+    );
+
+    console.log(`✅ Job created with ID: ${result.insertId}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Job posted successfully!',
+      jobId: result.insertId
+    });
+
+  } catch (error) {
+    console.error('❌ Create job error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating job',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// UPDATE JOB
+// ==========================================
+const updateJob = async (req, res) => {
+  const userId = req.user.userId;
+  const jobId = req.params.id;
+
+  try {
+    console.log('🔄 Updating job:', jobId);
+
+    const {
+      jobTitle,
+      industry,
+      location,
+      jobType,
+      experienceLevel,
+      salaryRange,
+      description,
+      requirements,
+      benefits,
+      status,
+      expiryDays
+    } = req.body;
+
+    // Check if job belongs to user
+    const [jobs] = await db.query(
+      'SELECT * FROM jobs WHERE id = ? AND user_id = ?',
+      [jobId, userId]
+    );
+
+    if (jobs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found or access denied'
+      });
+    }
+
+    const current = jobs[0];
+
+    // Calculate new expiry date if provided
+    let expiryDate = current.expiry_date;
+    if (expiryDays) {
+      const newExpiryDate = new Date();
+      newExpiryDate.setDate(newExpiryDate.getDate() + parseInt(expiryDays));
+      expiryDate = newExpiryDate.toISOString().split('T')[0];
+    }
+
+    // Update job
+    await db.query(
+      `UPDATE jobs 
+       SET job_title = ?, industry = ?, location = ?, job_type = ?,
+           experience_level = ?, salary_range = ?, description = ?,
+           requirements = ?, benefits = ?, status = ?, expiry_date = ?,
+           updated_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [
+        jobTitle || current.job_title,
+        industry !== undefined ? industry : current.industry,
+        location || current.location,
+        jobType || current.job_type,
+        experienceLevel || current.experience_level,
+        salaryRange !== undefined ? salaryRange : current.salary_range,
+        description || current.description,
+        requirements !== undefined ? requirements : current.requirements,
+        benefits !== undefined ? benefits : current.benefits,
+        status || current.status,
+        expiryDate,
+        jobId,
+        userId
+      ]
+    );
+
+    console.log('✅ Job updated successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Job updated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Update job error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating job',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// DELETE JOB
+// ==========================================
+const deleteJob = async (req, res) => {
+  const userId = req.user.userId;
+  const jobId = req.params.id;
+
+  try {
+    console.log('🗑️ Deleting job:', jobId);
+
+    // Check if job belongs to user
+    const [jobs] = await db.query(
+      'SELECT id FROM jobs WHERE id = ? AND user_id = ?',
+      [jobId, userId]
+    );
+
+    if (jobs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found or access denied'
+      });
+    }
+
+    // Delete job (applications will be deleted automatically due to CASCADE)
+    await db.query(
+      'DELETE FROM jobs WHERE id = ? AND user_id = ?',
+      [jobId, userId]
+    );
+
+    // Decrement jobs_count
+    await db.query(
+      'UPDATE job_poster_profiles SET jobs_count = GREATEST(jobs_count - 1, 0) WHERE user_id = ?',
+      [userId]
+    );
+
+    console.log('✅ Job deleted successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Job deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Delete job error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting job',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// GET MY JOBS
+// ==========================================
+const getMyJobs = async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const [jobs] = await db.query(
+      `SELECT * FROM jobs 
+       WHERE user_id = ? 
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    res.status(200).json({
+      success: true,
+      jobs: jobs || [],
+      count: jobs.length
+    });
+
+  } catch (error) {
+    console.error('Get my jobs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching jobs',
+      error: error.message
+    });
+  }
+};
+
+// ==========================================
+// GET JOB APPLICATIONS (for a specific job)
+// ==========================================
+const getJobApplications = async (req, res) => {
+  const userId = req.user.userId;
+  const jobId = req.params.id;
+
+  try {
+    // Verify job belongs to user
+    const [jobs] = await db.query(
+      'SELECT id, job_title FROM jobs WHERE id = ? AND user_id = ?',
+      [jobId, userId]
+    );
+
+    if (jobs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found or access denied'
+      });
+    }
+
+    // Get applications
+    const [applications] = await db.query(
+      `SELECT ja.*, mp.profile_photo, mp.cv_path, mp.job_title as applicant_job_title
+       FROM job_applications ja
+       LEFT JOIN manpower_profiles mp ON ja.applicant_user_id = mp.user_id
+       WHERE ja.job_id = ?
+       ORDER BY ja.applied_at DESC`,
+      [jobId]
+    );
+
+    res.status(200).json({
+      success: true,
+      jobTitle: jobs[0].job_title,
+      applications: applications || [],
+      count: applications.length
+    });
+
+  } catch (error) {
+    console.error('Get job applications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching applications',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createJobPosterAccount,
   getJobPosterProfile,
-  updateJobPosterProfile
+  updateJobPosterProfile,
+  createJob,
+  updateJob,
+  deleteJob,
+  getMyJobs,
+  getJobApplications
 };

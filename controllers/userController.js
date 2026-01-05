@@ -12,7 +12,7 @@ const createUsersTable = async () => {
       mobile_number VARCHAR(20) NOT NULL,
       whatsapp_number VARCHAR(20),
       location VARCHAR(255) NOT NULL,
-      user_type ENUM('manpower', 'equipment_owner', 'consultant') NOT NULL,
+      user_type ENUM('manpower', 'equipment_owner', 'consultant', 'job_poster') NOT NULL,
       is_active BOOLEAN DEFAULT true,
       reset_token VARCHAR(255),
       reset_token_expiry TIMESTAMP NULL,
@@ -175,7 +175,38 @@ const updateUserTypeEnum = async () => {
   }
 };
 
-// ✅ Add privacy policy columns if they don't exist
+// Update user_type ENUM to include 'job_poster' (for existing tables)
+const addJobPosterToUserTypeEnum = async () => {
+  try {
+    const [columns] = await db.query(`
+      SELECT COLUMN_TYPE 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'user_type'
+    `);
+
+    if (columns.length > 0) {
+      const columnType = columns[0].COLUMN_TYPE;
+      
+      if (!columnType.includes('job_poster')) {
+        console.log('🔄 Adding job_poster to user_type ENUM...');
+        
+        await db.query(`
+          ALTER TABLE users 
+          MODIFY COLUMN user_type ENUM('manpower', 'equipment_owner', 'consultant', 'job_poster') NOT NULL
+        `);
+        
+        console.log('✅ job_poster added to user_type ENUM successfully');
+      } else {
+        console.log('✅ job_poster already exists in user_type ENUM');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error updating user_type ENUM:', error);
+  }
+};
+
 const addPrivacyPolicyColumns = async () => {
   try {
     // Check if privacy_policy_accepted column exists
@@ -228,14 +259,14 @@ const addPrivacyPolicyColumns = async () => {
   }
 };
 
-// ✅ Initialize table on module load - CORRECT ORDER
 (async () => {
   try {
     await createUsersTable();
     await updateUsersTableSchema();
     await updateUserTypeEnum();
+    await addJobPosterToUserTypeEnum(); 
     await removeVerificationColumns();
-    await addPrivacyPolicyColumns(); // ✅ Now it's called AFTER all functions are defined
+    await addPrivacyPolicyColumns();
   } catch (error) {
     console.error('Failed to initialize users table:', error);
   }

@@ -176,7 +176,121 @@ const sendEquipmentInquiry = async (req, res) => {
   }
 };
 
+const sendJobApplication = async (req, res) => {
+  try {
+    const { jobId, name, email, phone, message } = req.body;
+    const userId = req.user?.userId; // Optional - user might not be logged in
+
+    // Validation
+    if (!jobId || !name || !email || !message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide job ID, name, email, and message'
+      });
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address'
+      });
+    }
+
+    console.log('📧 Processing job application:', { jobId, name, email });
+
+    // Get job and company details
+    const [jobs] = await db.query(
+      `SELECT 
+        j.id, j.job_title, j.company_name, j.user_id,
+        jpp.email as company_email, jpp.name as poster_name
+       FROM jobs j
+       JOIN job_poster_profiles jpp ON j.user_id = jpp.user_id
+       WHERE j.id = ? AND j.status = 'open'`,
+      [jobId]
+    );
+
+    if (jobs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found or no longer accepting applications'
+      });
+    }
+
+    const job = jobs[0];
+
+    // Check if already applied (if user is logged in)
+    if (userId) {
+      const [existing] = await db.query(
+        'SELECT id FROM job_applications WHERE job_id = ? AND applicant_user_id = ?',
+        [jobId, userId]
+      );
+
+      if (existing.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'You have already applied to this job'
+        });
+      }
+
+      // Record application
+      await db.query(
+        `INSERT INTO job_applications 
+        (job_id, applicant_user_id, applicant_name, applicant_email, applicant_phone, cover_message) 
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [jobId, userId, name, email, phone || null, message]
+      );
+
+      // Increment applications count
+      await db.query(
+        'UPDATE jobs SET applications_count = applications_count + 1 WHERE id = ?',
+        [jobId]
+      );
+    }
+
+    // Send emails to both parties
+    await Promise.all([
+      // Email to job poster
+      emailService.sendJobApplicationEmail(
+        {
+          email: job.company_email,
+          posterName: job.poster_name,
+          companyName: job.company_name,
+          jobTitle: job.job_title
+        },
+        { name, email, phone, message }
+      ),
+      // Confirmation email to applicant
+      emailService.sendApplicationConfirmationEmail(
+        { email, name },
+        {
+          jobTitle: job.job_title,
+          companyName: job.company_name
+        }
+      )
+    ]);
+
+    console.log('✅ Job application emails sent successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Your application has been sent successfully! The company will contact you soon.'
+    });
+
+  } catch (error) {
+    console.error('❌ Job application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error sending application. Please try again later.',
+      error: error.message
+    });
+  }
+};
+
+
 module.exports = {
   sendManpowerInquiry,
-  sendEquipmentInquiry
+  sendEquipmentInquiry,
+  sendJobApplication
 };

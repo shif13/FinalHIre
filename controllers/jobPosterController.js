@@ -1,4 +1,4 @@
-// controllers/jobPosterController.js - COMPLETE VERSION
+// controllers/jobPosterController.js - COMPLETE VERSION WITH MIGRATIONS
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const cloudinary = require('../config/cloudinary');
@@ -153,6 +153,102 @@ const createJobApplicationsTable = async () => {
   }
 };
 
+// ==========================================
+// MIGRATION: ADD CV AND PHOTO COLUMNS
+// ==========================================
+const addCvAndPhotoColumns = async () => {
+  try {
+    // Check if cv_path column exists
+    const [cvPathColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'job_applications' 
+      AND COLUMN_NAME = 'cv_path'
+    `);
+
+    if (cvPathColumn.length === 0) {
+      console.log('📄 Adding cv_path column to job_applications table...');
+      await db.query(`
+        ALTER TABLE job_applications 
+        ADD COLUMN cv_path VARCHAR(500) NULL AFTER cover_message
+      `);
+      console.log('✅ cv_path column added successfully');
+    } else {
+      console.log('✅ cv_path column already exists');
+    }
+
+    // Check if photo_path column exists
+    const [photoPathColumn] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'job_applications' 
+      AND COLUMN_NAME = 'photo_path'
+    `);
+
+    if (photoPathColumn.length === 0) {
+      console.log('📸 Adding photo_path column to job_applications table...');
+      await db.query(`
+        ALTER TABLE job_applications 
+        ADD COLUMN photo_path VARCHAR(500) NULL AFTER cv_path
+      `);
+      console.log('✅ photo_path column added successfully');
+    } else {
+      console.log('✅ photo_path column already exists');
+    }
+
+  } catch (error) {
+    console.error('❌ Error adding cv_path and photo_path columns:', error);
+    // Don't throw - allow app to continue
+  }
+};
+
+// ==========================================
+// MIGRATION: UPDATE APPLICANT_USER_ID TO ALLOW NULL
+// ==========================================
+const updateApplicantUserIdColumn = async () => {
+  try {
+    console.log('🔄 Updating applicant_user_id to allow NULL values...');
+    await db.query(`
+      ALTER TABLE job_applications 
+      MODIFY COLUMN applicant_user_id INT NULL
+    `);
+    console.log('✅ applicant_user_id column updated to allow NULL');
+  } catch (error) {
+    console.error('❌ Error updating applicant_user_id column:', error);
+    // Don't throw - allow app to continue
+  }
+};
+
+// ==========================================
+// MIGRATION: DROP UNIQUE CONSTRAINT ON applicant_user_id
+// ==========================================
+const updateJobApplicationsUniqueConstraint = async () => {
+  try {
+    // Check if the unique constraint exists
+    const [constraints] = await db.query(`
+      SHOW INDEXES FROM job_applications 
+      WHERE Key_name = 'unique_job_applicant'
+    `);
+
+    if (constraints.length > 0) {
+      console.log('🔄 Dropping unique_job_applicant constraint...');
+      await db.query(`
+        ALTER TABLE job_applications 
+        DROP INDEX unique_job_applicant
+      `);
+      console.log('✅ unique_job_applicant constraint dropped (allows guest applications)');
+    } else {
+      console.log('✅ unique_job_applicant constraint does not exist');
+    }
+
+  } catch (error) {
+    console.error('❌ Error updating job applications constraint:', error);
+    // Don't throw - allow app to continue
+  }
+};
+
 // Initialize tables on module load
 (async () => {
   try {
@@ -160,6 +256,9 @@ const createJobApplicationsTable = async () => {
     await createJobsTable();
     await createSavedJobsTable();
     await createJobApplicationsTable();
+    await addCvAndPhotoColumns(); // Add CV and photo columns
+    await updateApplicantUserIdColumn(); // Allow NULL for guest applications
+    await updateJobApplicationsUniqueConstraint(); // Allow multiple guest applications
   } catch (error) {
     console.error('Failed to initialize job poster tables:', error);
   }
@@ -426,7 +525,7 @@ const updateJobPosterProfile = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    console.log('🔄 Updating job poster profile for user:', userId);
+    console.log('📝 Updating job poster profile for user:', userId);
 
     const {
       companyName,
@@ -659,7 +758,7 @@ const updateJob = async (req, res) => {
   const jobId = req.params.id;
 
   try {
-    console.log('🔄 Updating job:', jobId);
+    console.log('📝 Updating job:', jobId);
 
     const {
       jobTitle,

@@ -49,6 +49,13 @@ const fileFilter = (req, file, cb) => {
     } else {
       cb(new Error('CV must be a PDF or Word document.'), false);
     }
+  } else if (file.fieldname === 'photo') {
+    // ✅ NEW: Handle job application photo uploads
+    if (imageTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Photo must be an image file (jpg, png).'), false);
+    }
   } else if (file.fieldname === 'certificates') {
     if ([...docTypes, ...imageTypes].includes(file.mimetype)) {
       cb(null, true);
@@ -92,6 +99,7 @@ const upload = multer({
 const uploadFields = upload.fields([
   { name: 'profilePhoto', maxCount: 1 },
   { name: 'cv', maxCount: 1 },
+  { name: 'photo', maxCount: 1 },  // ✅ NEW: For job applications
   { name: 'certificates', maxCount: 10 },
   { name: 'equipmentImages', maxCount: 10 },
   { name: 'equipmentDocuments', maxCount: 10 }

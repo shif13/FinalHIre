@@ -1,5 +1,24 @@
 const db = require('../config/db');
 const emailService = require('../services/emailService');
+const cloudinary = require('../config/cloudinary');
+const fs = require('fs');
+
+// Helper function to upload to Cloudinary
+const uploadToCloudinary = async (filePath, folder) => {
+  try {
+    const result = await cloudinary.uploader.upload(filePath, {
+      folder,
+      resource_type: 'auto'
+    });
+    
+    // Delete local file after upload
+    fs.unlinkSync(filePath);
+    return result.secure_url;
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    throw error;
+  }
+};
 
 // ==========================================
 // SEND INQUIRY TO MANPOWER
@@ -176,8 +195,16 @@ const sendEquipmentInquiry = async (req, res) => {
   }
 };
 
+// ==========================================
+// SEND JOB APPLICATION (WITH FILE UPLOADS)
+// ==========================================
 const sendJobApplication = async (req, res) => {
   try {
+    console.log('📧 Job Application Request:', {
+      body: req.body,
+      files: req.files
+    });
+
     const { jobId, name, email, phone, message } = req.body;
     const userId = req.user?.userId; // Optional - user might not be logged in
 
@@ -220,6 +247,26 @@ const sendJobApplication = async (req, res) => {
 
     const job = jobs[0];
 
+    // Handle file uploads
+    let cvUrl = null;
+    let photoUrl = null;
+
+    if (req.files) {
+      // Upload CV if provided
+      if (req.files.cv && req.files.cv[0]) {
+        console.log('📄 Uploading CV to Cloudinary...');
+        cvUrl = await uploadToCloudinary(req.files.cv[0].path, 'job_applications/cvs');
+        console.log('✅ CV uploaded:', cvUrl);
+      }
+
+      // Upload photo if provided
+      if (req.files.photo && req.files.photo[0]) {
+        console.log('📸 Uploading photo to Cloudinary...');
+        photoUrl = await uploadToCloudinary(req.files.photo[0].path, 'job_applications/photos');
+        console.log('✅ Photo uploaded:', photoUrl);
+      }
+    }
+
     // Check if already applied (if user is logged in)
     if (userId) {
       const [existing] = await db.query(
@@ -233,21 +280,21 @@ const sendJobApplication = async (req, res) => {
           message: 'You have already applied to this job'
         });
       }
-
-      // Record application
-      await db.query(
-        `INSERT INTO job_applications 
-        (job_id, applicant_user_id, applicant_name, applicant_email, applicant_phone, cover_message) 
-        VALUES (?, ?, ?, ?, ?, ?)`,
-        [jobId, userId, name, email, phone || null, message]
-      );
-
-      // Increment applications count
-      await db.query(
-        'UPDATE jobs SET applications_count = applications_count + 1 WHERE id = ?',
-        [jobId]
-      );
     }
+
+    // Record application with CV and photo URLs (for both logged-in and guest users)
+    await db.query(
+      `INSERT INTO job_applications 
+      (job_id, applicant_user_id, applicant_name, applicant_email, applicant_phone, cover_message, cv_path, photo_path) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [jobId, userId || null, name, email, phone || null, message, cvUrl, photoUrl]
+    );
+
+    // Increment applications count
+    await db.query(
+      'UPDATE jobs SET applications_count = applications_count + 1 WHERE id = ?',
+      [jobId]
+    );
 
     // Send emails to both parties
     await Promise.all([
@@ -259,7 +306,7 @@ const sendJobApplication = async (req, res) => {
           companyName: job.company_name,
           jobTitle: job.job_title
         },
-        { name, email, phone, message }
+        { name, email, phone, message, cvUrl, photoUrl }
       ),
       // Confirmation email to applicant
       emailService.sendApplicationConfirmationEmail(
@@ -288,9 +335,73 @@ const sendJobApplication = async (req, res) => {
   }
 };
 
+// ==========================================
+// UPDATE APPLICATION STATUS
+// ==========================================
+const updateApplicationStatus = async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { status } = req.body;
+    const userId = req.user.userId;
+
+    // Validate status
+    const validStatuses = ['pending', 'reviewed', 'shortlisted', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status value'
+      });
+    }
+
+    // Verify the application belongs to a job posted by this user
+    const [applications] = await db.query(
+      `SELECT ja.*, j.user_id as job_poster_id
+       FROM job_applications ja
+       JOIN jobs j ON ja.job_id = j.id
+       WHERE ja.id = ?`,
+      [applicationId]
+    );
+
+    if (applications.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    if (applications[0].job_poster_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // Update status
+    await db.query(
+      'UPDATE job_applications SET application_status = ? WHERE id = ?',
+      [status, applicationId]
+    );
+
+    console.log(`✅ Application ${applicationId} status updated to ${status}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Application status updated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Update application status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating application status',
+      error: error.message
+    });
+  }
+};
 
 module.exports = {
   sendManpowerInquiry,
   sendEquipmentInquiry,
-  sendJobApplication
+  sendJobApplication,
+  updateApplicationStatus
 };

@@ -3,7 +3,76 @@ const db = require('../config/db');
 const { buildLocationQuery } = require('./locationSearchHelper');
 
 // ==========================================
-// SEARCH JOBS (Public Access)
+// JOB TITLE SYNONYMS & KEYWORDS
+// ==========================================
+const JOB_SYNONYMS = {
+  // Software/Tech roles
+  'developer': ['engineer', 'programmer', 'coder', 'sde', 'software', 'dev', 'frontend', 'backend', 'fullstack', 'full stack', 'full-stack'],
+  'engineer': ['developer', 'sde', 'software', 'programmer', 'architect', 'dev'],
+  'sde': ['software', 'developer', 'engineer', 'programmer'],
+  'software': ['sde', 'developer', 'engineer', 'programmer', 'tech'],
+  'frontend': ['front-end', 'front end', 'ui', 'react', 'angular', 'vue', 'web developer'],
+  'backend': ['back-end', 'back end', 'server', 'api', 'node', 'java', 'python'],
+  'fullstack': ['full-stack', 'full stack', 'full stack developer', 'fullstack developer'],
+  
+  // Management roles
+  'manager': ['management', 'lead', 'head', 'director', 'supervisor', 'team lead'],
+  'lead': ['manager', 'team lead', 'technical lead', 'tech lead'],
+  'director': ['head', 'manager', 'vp', 'vice president'],
+  
+  // Design roles
+  'designer': ['design', 'ui', 'ux', 'graphic', 'visual', 'product designer'],
+  'ux': ['ui', 'designer', 'user experience', 'product designer'],
+  'ui': ['ux', 'designer', 'user interface', 'frontend'],
+  
+  // Data roles
+  'data': ['analyst', 'scientist', 'engineer', 'analytics', 'bi', 'database'],
+  'analyst': ['data', 'business analyst', 'analytics', 'bi'],
+  'scientist': ['data scientist', 'ml', 'machine learning', 'ai'],
+  
+  // Marketing/Sales
+  'marketing': ['digital marketing', 'growth', 'seo', 'social media', 'content'],
+  'sales': ['business development', 'account manager', 'sales executive'],
+  
+  // HR/Admin
+  'hr': ['human resources', 'recruiter', 'talent', 'people'],
+  'recruiter': ['hr', 'talent acquisition', 'hiring'],
+  
+  // Construction/Engineering
+  'civil': ['civil engineer', 'construction', 'site', 'structural'],
+  'mechanical': ['mechanical engineer', 'production', 'manufacturing'],
+  'electrical': ['electrical engineer', 'electronics', 'eee'],
+  
+  // Common terms
+  'intern': ['internship', 'trainee', 'fresher'],
+  'fresher': ['entry level', 'junior', 'trainee', 'intern'],
+  'senior': ['sr', 'lead', 'principal', 'expert'],
+  'junior': ['jr', 'entry level', 'fresher'],
+};
+
+// Function to get all related keywords for a search term
+const getRelatedKeywords = (searchTerm) => {
+  const term = searchTerm.toLowerCase().trim();
+  const related = new Set([term]); // Include original term
+  
+  // Check if term exists in synonyms
+  if (JOB_SYNONYMS[term]) {
+    JOB_SYNONYMS[term].forEach(synonym => related.add(synonym));
+  }
+  
+  // Check if term is a synonym of any key
+  Object.entries(JOB_SYNONYMS).forEach(([key, synonyms]) => {
+    if (synonyms.includes(term)) {
+      related.add(key);
+      synonyms.forEach(s => related.add(s));
+    }
+  });
+  
+  return Array.from(related);
+};
+
+// ==========================================
+// SEARCH JOBS (Public Access) - WITH SMART SEARCH
 // ==========================================
 const searchJobs = async (req, res) => {
   try {
@@ -31,10 +100,35 @@ const searchJobs = async (req, res) => {
 
     const params = [];
 
-    // Job title search
+    // ✅ SMART SEARCH: Job title search with synonyms
     if (query && query.trim()) {
-      sqlQuery += ` AND j.job_title LIKE ?`;
-      params.push(`%${query.trim()}%`);
+      const searchTerms = query.trim().toLowerCase().split(/\s+/); // Split by spaces
+      const allKeywords = [];
+      
+      // Get synonyms for each search term
+      searchTerms.forEach(term => {
+        const related = getRelatedKeywords(term);
+        allKeywords.push(...related);
+      });
+      
+      // Remove duplicates
+      const uniqueKeywords = [...new Set(allKeywords)];
+      
+      console.log('🔎 Original search:', query);
+      console.log('🔎 Expanded keywords:', uniqueKeywords);
+      
+      // Build search condition for each keyword (search in job_title, description, company_name)
+      const searchConditions = uniqueKeywords.map(() => 
+        `(LOWER(j.job_title) LIKE ? OR LOWER(j.description) LIKE ? OR LOWER(j.company_name) LIKE ?)`
+      ).join(' OR ');
+      
+      sqlQuery += ` AND (${searchConditions})`;
+      
+      // Add wildcard search for each keyword
+      uniqueKeywords.forEach(keyword => {
+        const searchPattern = `%${keyword}%`;
+        params.push(searchPattern, searchPattern, searchPattern);
+      });
     }
 
     // Location filter

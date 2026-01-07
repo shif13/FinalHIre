@@ -3,7 +3,7 @@ const db = require('../config/db');
 
 /**
  * Universal Search - Search across ALL database fields
- * Searches: Name, Email, Phone, National ID, Location, Job Title, Equipment Name, Description, etc.
+ * Searches: Name, Email, Phone, National ID, Location, Job Title, Equipment Name, Description, Jobs, etc.
  */
 const universalSearch = async (req, res) => {
   const startTime = Date.now();
@@ -206,6 +206,64 @@ const universalSearch = async (req, res) => {
       };
     });
 
+    // ==========================================
+    // SEARCH JOBS - ALL FIELDS
+    // ==========================================
+    const jobsQuery = `
+      SELECT 
+        j.id,
+        j.user_id,
+        j.job_title,
+        j.company_name,
+        j.location,
+        j.job_type,
+        j.experience_level,
+        j.salary_range,
+        j.description,
+        j.requirements,
+        j.industry,
+        j.status,
+        j.posted_date,
+        j.expiry_date,
+        j.views_count,
+        jpp.company_logo,
+        jpp.company_size,
+        jpp.email as company_email,
+        jpp.mobile_number as company_mobile
+      FROM jobs j
+      LEFT JOIN job_poster_profiles jpp ON j.user_id = jpp.user_id
+      WHERE 
+        j.status = 'open' AND
+        (j.expiry_date IS NULL OR j.expiry_date >= CURDATE()) AND
+        (
+          j.job_title LIKE ? OR
+          j.company_name LIKE ? OR
+          j.location LIKE ? OR
+          j.description LIKE ? OR
+          j.requirements LIKE ? OR
+          j.industry LIKE ? OR
+          j.job_type LIKE ? OR
+          j.experience_level LIKE ? OR
+          j.salary_range LIKE ? OR
+          jpp.email LIKE ? OR
+          jpp.mobile_number LIKE ? OR
+          j.id = ?
+        )
+      ORDER BY j.posted_date DESC
+      LIMIT 100
+    `;
+
+    const numericSearch = parseInt(searchTerm) || 0;
+    const jobsParams = [
+      searchPattern, searchPattern, searchPattern, searchPattern,
+      searchPattern, searchPattern, searchPattern, searchPattern,
+      searchPattern, searchPattern, searchPattern, numericSearch
+    ];
+    
+    const [jobsResults] = await db.query(jobsQuery, jobsParams);
+
+    console.log(`✅ Found ${jobsResults.length} jobs results`);
+
     const responseTime = Date.now() - startTime;
 
     res.status(200).json({
@@ -213,10 +271,12 @@ const universalSearch = async (req, res) => {
       query: searchTerm,
       manpower: parsedManpower,
       equipment: parsedEquipment,
-      totalResults: parsedManpower.length + parsedEquipment.length,
+      jobs: jobsResults,
+      totalResults: parsedManpower.length + parsedEquipment.length + jobsResults.length,
       counts: {
         manpower: parsedManpower.length,
-        equipment: parsedEquipment.length
+        equipment: parsedEquipment.length,
+        jobs: jobsResults.length
       },
       processingTime: `${responseTime}ms`,
       timestamp: new Date().toISOString()

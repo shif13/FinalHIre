@@ -37,11 +37,12 @@ const fileFilter = (req, file, cb) => {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   ];
 
-  if (file.fieldname === 'profilePhoto') {
+  // ✅ UPDATED: Handle both profilePhoto AND companyLogo
+  if (file.fieldname === 'profilePhoto' || file.fieldname === 'companyLogo') {
     if (imageTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Profile photo must be an image file (jpg, png, webp).'), false);
+      cb(new Error('Profile photo and company logo must be image files (jpg, png, webp).'), false);
     }
   } else if (file.fieldname === 'cv') {
     if (docTypes.includes(file.mimetype)) {
@@ -50,7 +51,7 @@ const fileFilter = (req, file, cb) => {
       cb(new Error('CV must be a PDF or Word document.'), false);
     }
   } else if (file.fieldname === 'photo') {
-    // ✅ NEW: Handle job application photo uploads
+    // ✅ For job application photo uploads
     if (imageTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -94,12 +95,13 @@ const upload = multer({
 });
 
 // =============================================================
-// ✅ Export middleware with ALL required fields
+// ✅ Export middleware with ALL required fields (INCLUDING companyLogo)
 // =============================================================
 const uploadFields = upload.fields([
   { name: 'profilePhoto', maxCount: 1 },
+  { name: 'companyLogo', maxCount: 1 },  // ✅ ADDED THIS LINE
   { name: 'cv', maxCount: 1 },
-  { name: 'photo', maxCount: 1 },  // ✅ NEW: For job applications
+  { name: 'photo', maxCount: 1 },
   { name: 'certificates', maxCount: 10 },
   { name: 'equipmentImages', maxCount: 10 },
   { name: 'equipmentDocuments', maxCount: 10 }
